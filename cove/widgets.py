@@ -20,6 +20,7 @@ from PySide6.QtGui import (
     QIcon,
     QMouseEvent,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
 )
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QPushButton,
     QSizePolicy,
     QToolButton,
     QVBoxLayout,
@@ -130,6 +132,80 @@ class BrandBadge(QLabel):
         p.end()
 
 
+# ── Theme toggle (sun / moon glyph) ───────────────────────────────────────
+class ThemeButton(QToolButton):
+    """Sun/moon glyph button rendered with QPainter — no SVG dependency.
+
+    Mirrors the upscaler's `<ThemeToggle>`: dark mode shows a sun (click =
+    go light), light mode shows a moon (click = go dark)."""
+
+    toggled_theme = Signal(str)  # emits "dark" or "light"
+
+    def __init__(self, theme_name: str = "dark", parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("themeBtn")
+        self.setFixedSize(32, 28)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAutoRaise(True)
+        self._theme = theme_name
+        self._refresh_tooltip()
+        self.clicked.connect(self._on_click)
+
+    def set_theme(self, name: str) -> None:
+        self._theme = name
+        self._refresh_tooltip()
+        self.update()
+
+    def _refresh_tooltip(self) -> None:
+        if self._theme == "dark":
+            self.setToolTip("Switch to light mode")
+        else:
+            self.setToolTip("Switch to dark mode")
+
+    def _on_click(self) -> None:
+        self.toggled_theme.emit("light" if self._theme == "dark" else "dark")
+
+    def sizeHint(self) -> QSize:
+        return QSize(32, 28)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        color = self.palette().color(self.foregroundRole())
+        pen = QPen(color, 1.6)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        cx, cy = self.width() / 2, self.height() / 2
+        if self._theme == "dark":
+            # Sun: small circle + 8 rays
+            r = 3.2
+            p.drawEllipse(QPoint(int(cx), int(cy)), int(r), int(r))
+            import math
+            for i in range(8):
+                a = i * (math.pi / 4)
+                inner = 5.2
+                outer = 7.4
+                x1 = cx + math.cos(a) * inner
+                y1 = cy + math.sin(a) * inner
+                x2 = cx + math.cos(a) * outer
+                y2 = cy + math.sin(a) * outer
+                p.drawLine(int(x1), int(y1), int(x2), int(y2))
+        else:
+            # Moon: crescent
+            path = QPainterPath()
+            path.addEllipse(QPoint(int(cx), int(cy)), 6, 6)
+            cut = QPainterPath()
+            cut.addEllipse(QPoint(int(cx + 3), int(cy - 1)), 5, 5)
+            crescent = path.subtracted(cut)
+            p.setBrush(color)
+            p.setPen(Qt.NoPen)
+            p.drawPath(crescent)
+        p.end()
+
+
 # ── Window control buttons (painted glyphs, no fonts/SVG) ─────────────────
 class _CtrlButton(QToolButton):
     def __init__(self, kind: str, parent: QWidget | None = None):
@@ -177,6 +253,7 @@ class Titlebar(QFrame):
         window: QMainWindow,
         app_name: str,
         version: str,
+        theme_name: str = "dark",
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
@@ -201,6 +278,9 @@ class Titlebar(QFrame):
         lay.addWidget(ver, 0, Qt.AlignVCenter)
 
         lay.addStretch(1)
+
+        self.theme_btn = ThemeButton(theme_name)
+        lay.addWidget(self.theme_btn)
 
         self.min_btn = _CtrlButton("min")
         self.min_btn.setToolTip("Minimize")
@@ -391,7 +471,12 @@ class StatsStrip(QFrame):
 
 
 class Footer(QFrame):
-    """Bottom hotkey/info strip."""
+    """Bottom hotkey/info strip.
+
+    Hotkeys render as object-named QLabels (not inline-styled HTML) so
+    they pick up palette changes when the theme switches at runtime."""
+
+    folder_clicked = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -401,24 +486,38 @@ class Footer(QFrame):
         lay.setSpacing(18)
 
         self._items_lay = QHBoxLayout()
-        self._items_lay.setSpacing(18)
+        self._items_lay.setSpacing(14)
         lay.addLayout(self._items_lay, 1)
+
+        # Folder chip — clickable, opens the downloads folder.
+        self.folder_btn = QPushButton("")
+        self.folder_btn.setObjectName("folderChip")
+        self.folder_btn.setCursor(Qt.PointingHandCursor)
+        self.folder_btn.setVisible(False)
+        self.folder_btn.clicked.connect(self.folder_clicked.emit)
+        lay.addWidget(self.folder_btn, 0, Qt.AlignRight)
 
         self.platform = QLabel("")
         self.platform.setObjectName("footerPlatform")
         lay.addWidget(self.platform, 0, Qt.AlignRight)
 
     def add_hotkey(self, label: str, keys: str) -> None:
-        from .theme import TEXT_DIM, TEXT_FAINT
-
-        text = (
-            f'<span style="color:{TEXT_FAINT}; font-family:Geist Mono,monospace;'
-            f' font-size:8pt; letter-spacing:2px; text-transform:uppercase;">{label.upper()}</span>'
-            f'  <span style="color:{TEXT_DIM}; font-family:Geist Mono,monospace; font-size:9pt;">{keys}</span>'
-        )
-        item = QLabel(text)
-        item.setTextFormat(Qt.RichText)
-        self._items_lay.addWidget(item)
+        wrap = QFrame()
+        h = QHBoxLayout(wrap)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(8)
+        lab = QLabel(label.upper())
+        lab.setObjectName("footerLabel")
+        key = QLabel(keys)
+        key.setObjectName("footerKey")
+        h.addWidget(lab)
+        h.addWidget(key)
+        self._items_lay.addWidget(wrap)
 
     def set_platform(self, text: str) -> None:
         self.platform.setText(text)
+
+    def set_folder(self, full_path: str, display: str) -> None:
+        self.folder_btn.setText(display)
+        self.folder_btn.setToolTip(f"Open {full_path}")
+        self.folder_btn.setVisible(bool(display))

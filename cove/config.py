@@ -46,6 +46,7 @@ class Settings:
     time_format_24h: bool = False  # default: 12-hour with AM/PM
     auto_update_check: bool = True
     delete_completed_on_exit: bool = False
+    theme: str = "dark"  # "dark" | "light"
     rpc_port: int = 6800
     rpc_secret: str = ""  # populated on first save; never persisted as "cove"
     schedule: ScheduleWindow = field(default_factory=ScheduleWindow)
@@ -69,6 +70,8 @@ class Settings:
         sched = ScheduleWindow(**raw.pop("schedule", {})) if "schedule" in raw else ScheduleWindow()
         s = cls(**{k: v for k, v in raw.items() if k in cls.__annotations__})
         s.schedule = sched
+        if s.theme not in ("dark", "light"):
+            s.theme = "dark"
         # Migrate legacy / empty / suspiciously-short secrets up to a real one.
         if not s.rpc_secret or s.rpc_secret == _LEGACY_RPC_SECRET or len(s.rpc_secret) < 16:
             s.rpc_secret = _new_rpc_secret()

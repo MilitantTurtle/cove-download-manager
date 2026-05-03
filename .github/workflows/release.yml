@@ -1,0 +1,347 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version override (e.g. 1.1.0). Leave blank to use cove/__init__.py.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Linux AppImage ─────────────────────────────────────────────────────
+  appimage:
+    name: Build AppImage
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="$(grep -E '^__version__' cove/__init__.py | cut -d'"' -f2)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python (host)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install AppImage build tooling
+        run: |
+          sudo apt-get update
+          # libfuse2 is required for the appimagetool AppImage to execute.
+          sudo apt-get install -y --no-install-recommends libfuse2 desktop-file-utils
+          python -m pip install --upgrade pip
+          python -m pip install --user python-appimage
+
+      - name: Build AppImage
+        run: |
+          export PYAPPIMG="$HOME/.local/bin/python-appimage"
+          bash build.sh
+
+      - name: List artifacts
+        run: ls -la release/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: |
+            release/Cove-Download-Manager-${{ steps.ver.outputs.version }}-x86_64.AppImage
+            release/Cove-Download-Manager-${{ steps.ver.outputs.version }}-x86_64.AppImage.sha256
+          if-no-files-found: error
+
+  # ── Linux .deb ─────────────────────────────────────────────────────────
+  deb:
+    name: Build .deb
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="$(grep -E '^__version__' cove/__init__.py | cut -d'"' -f2)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install OS build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends binutils xz-utils
+
+      - name: Build .deb
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: bash scripts/build-deb.sh
+
+      - name: List artifacts
+        run: ls -la release/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: |
+            release/cove-download-manager_${{ steps.ver.outputs.version }}_amd64.deb
+            release/cove-download-manager_${{ steps.ver.outputs.version }}_amd64.deb.sha256
+          if-no-files-found: error
+
+  # ── Windows Setup.exe + Portable.exe (native, no Wine) ────────────────
+  windows:
+    name: Build Windows installers
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="$(grep -E '^__version__' cove/__init__.py | cut -d'"' -f2)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python deps
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller pillow
+
+      - name: Generate cove_icon.ico
+        shell: pwsh
+        run: |
+          python -c "from PIL import Image; Image.open('cove_icon.png').save('cove_icon.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+
+      - name: Fetch aria2c.exe
+        shell: pwsh
+        run: |
+          $aria = "1.37.0"
+          $url = "https://github.com/aria2/aria2/releases/download/release-$aria/aria2-$aria-win-64bit-build1.zip"
+          New-Item -ItemType Directory -Force -Path build/aria2-win | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile build/aria2.zip
+          Expand-Archive -Path build/aria2.zip -DestinationPath build -Force
+          $src = Get-ChildItem -Path build -Directory -Filter "aria2-*" | Select-Object -First 1
+          Copy-Item -Path "$($src.FullName)/*" -Destination build/aria2-win -Recurse -Force
+          Test-Path build/aria2-win/aria2c.exe
+
+      - name: PyInstaller (one-dir for installer)
+        shell: pwsh
+        run: |
+          python -m PyInstaller `
+            --noconfirm --clean --log-level WARN `
+            --windowed `
+            --icon cove_icon.ico `
+            --name cove-download-manager `
+            --paths . `
+            --add-data "cove_icon.png;cove" `
+            --add-binary "build/aria2-win/aria2c.exe;." `
+            --hidden-import cove `
+            --hidden-import cove.app `
+            --hidden-import requests `
+            --collect-submodules requests `
+            --exclude-module PySide6.QtWebEngineCore `
+            --exclude-module PySide6.QtWebEngineWidgets `
+            --exclude-module PySide6.QtQml `
+            --exclude-module PySide6.QtQuick `
+            --exclude-module PySide6.QtPdf `
+            --exclude-module PySide6.Qt3DCore `
+            --exclude-module PySide6.QtCharts `
+            --exclude-module PySide6.QtDataVisualization `
+            --exclude-module PySide6.QtMultimedia `
+            --exclude-module PySide6.QtMultimediaWidgets `
+            --exclude-module tkinter `
+            --distpath build/win-onedir/dist `
+            --workpath build/win-onedir/work `
+            packaging/launcher.py
+          if (-not (Test-Path "build/win-onedir/dist/cove-download-manager")) { throw "one-dir bundle missing" }
+          Copy-Item cove_icon.png build/win-onedir/dist/cove-download-manager/
+          if (Test-Path README.md) { Copy-Item README.md build/win-onedir/dist/cove-download-manager/ }
+          if (Test-Path LICENSE)   { Copy-Item LICENSE   build/win-onedir/dist/cove-download-manager/ }
+
+      - name: PyInstaller (one-file portable)
+        shell: pwsh
+        run: |
+          python -m PyInstaller `
+            --noconfirm --clean --log-level WARN `
+            --windowed --onefile `
+            --icon cove_icon.ico `
+            --name cove-download-manager-portable `
+            --paths . `
+            --add-data "cove_icon.png;cove" `
+            --add-binary "build/aria2-win/aria2c.exe;." `
+            --hidden-import cove `
+            --hidden-import cove.app `
+            --hidden-import requests `
+            --collect-submodules requests `
+            --exclude-module PySide6.QtWebEngineCore `
+            --exclude-module PySide6.QtWebEngineWidgets `
+            --exclude-module PySide6.QtQml `
+            --exclude-module PySide6.QtQuick `
+            --exclude-module PySide6.QtPdf `
+            --exclude-module PySide6.Qt3DCore `
+            --exclude-module PySide6.QtCharts `
+            --exclude-module PySide6.QtDataVisualization `
+            --exclude-module PySide6.QtMultimedia `
+            --exclude-module PySide6.QtMultimediaWidgets `
+            --exclude-module tkinter `
+            --distpath build/win-onefile/dist `
+            --workpath build/win-onefile/work `
+            packaging/launcher.py
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Setup.exe with Inno Setup
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          $src  = (Resolve-Path "build/win-onedir/dist/cove-download-manager").Path
+          $out  = (Resolve-Path "release").Path
+          $icon = (Resolve-Path "cove_icon.ico").Path
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DAppVersion=${{ steps.ver.outputs.version }}" `
+            "/DSourceDir=$src" `
+            "/DOutputDir=$out" `
+            "/DIconFile=$icon" `
+            packaging/installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+
+      - name: Stage portable + write SHA-256 sidecars
+        shell: pwsh
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+          $portSrc = "build/win-onefile/dist/cove-download-manager-portable.exe"
+          $portDst = "release/Cove-Download-Manager-$version-Portable.exe"
+          Copy-Item -Force $portSrc $portDst
+          $setup   = "release/Cove-Download-Manager-$version-Setup.exe"
+          foreach ($f in @($setup, $portDst)) {
+            if (Test-Path $f) {
+              $h = (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower()
+              $name = Split-Path $f -Leaf
+              "$h  $name" | Out-File -Encoding ASCII -NoNewline "$f.sha256"
+              Add-Content -Path "$f.sha256" -Value ""
+            }
+          }
+          Get-ChildItem release | Format-Table -AutoSize
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            release/Cove-Download-Manager-${{ steps.ver.outputs.version }}-Setup.exe
+            release/Cove-Download-Manager-${{ steps.ver.outputs.version }}-Setup.exe.sha256
+            release/Cove-Download-Manager-${{ steps.ver.outputs.version }}-Portable.exe
+            release/Cove-Download-Manager-${{ steps.ver.outputs.version }}-Portable.exe.sha256
+          if-no-files-found: error
+
+  # ── Publish GitHub release ─────────────────────────────────────────────
+  publish:
+    name: Publish GitHub release
+    needs: [appimage, deb, windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage release directory
+        run: |
+          mkdir -p release
+          find artifacts -type f -exec cp -v {} release/ \;
+          ls -la release/
+
+      - name: Verify SHA-256 sidecars
+        run: |
+          cd release
+          for f in *.sha256; do
+            echo "Verifying $f"
+            sha256sum -c "$f"
+          done
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          NOTES_FILE="$(mktemp)"
+          cat > "$NOTES_FILE" <<EOF
+          ## What's new in v$VERSION
+
+          **UI/UX**
+          - Open file / Show in folder on completed downloads (right-click)
+          - Open downloads folder button in the action bar, plus a clickable path chip in the footer
+          - Friendly empty state with a "drop a link here" hint, plus drag-and-drop URL support
+          - Persistent error indicator on failed downloads with a Retry action
+          - Removed the duplicate title in the hero strip (the titlebar already shows the app name)
+          - Renamed the "Cap" stat to "Speed limit" with friendlier units (Off / KB/s / MB/s)
+
+          **Theme**
+          - New light mode, switchable with the sun/moon toggle in the titlebar
+          - Preference is persisted across launches
+
+          **Fixes**
+          - On Linux, "Show in folder" now opens the parent directory when the file has not been written yet
+
+          ## Downloads
+
+          | Platform | File |
+          |----------|------|
+          | Linux (AppImage) | \`Cove-Download-Manager-$VERSION-x86_64.AppImage\` |
+          | Linux (Debian/Ubuntu) | \`cove-download-manager_${VERSION}_amd64.deb\` |
+          | Windows installer | \`Cove-Download-Manager-$VERSION-Setup.exe\` |
+          | Windows portable | \`Cove-Download-Manager-$VERSION-Portable.exe\` |
+
+          Each binary ships with a matching \`.sha256\` sidecar. Verify with:
+
+          \`\`\`
+          sha256sum -c <asset>.sha256
+          \`\`\`
+          EOF
+
+          gh release create "v$VERSION" \
+            --title "Cove Download Manager v$VERSION" \
+            --notes-file "$NOTES_FILE" \
+            release/*

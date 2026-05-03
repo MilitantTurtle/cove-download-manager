@@ -16,13 +16,12 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QIcon, QPalette, QColor
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from . import APP_NAME, __version__
+from . import APP_NAME, __version__, theme
 from .aria2 import Aria2Daemon, Aria2Error, Aria2RPC
 from .config import Settings
 from .main_window import MainWindow
 from .queue import QueueManager
 from .scheduler import Scheduler
-from .theme import BG, QSS, SURFACE_2, TEXT
 from .updater import UpdateController
 from .widgets import find_icon
 
@@ -31,16 +30,29 @@ UPDATE_REPO = "Sin213/cove-download-manager"
 
 def _apply_palette(app: QApplication) -> None:
     pal = QPalette()
-    pal.setColor(QPalette.Window, QColor(BG))
-    pal.setColor(QPalette.WindowText, QColor(TEXT))
-    pal.setColor(QPalette.Base, QColor(BG))
-    pal.setColor(QPalette.AlternateBase, QColor(SURFACE_2))
-    pal.setColor(QPalette.Text, QColor(TEXT))
-    pal.setColor(QPalette.ToolTipBase, QColor(SURFACE_2))
-    pal.setColor(QPalette.ToolTipText, QColor(TEXT))
-    pal.setColor(QPalette.Highlight, QColor("#50e6cf"))
-    pal.setColor(QPalette.HighlightedText, QColor("#07120f"))
+    pal.setColor(QPalette.Window, QColor(theme.BG))
+    pal.setColor(QPalette.WindowText, QColor(theme.TEXT))
+    pal.setColor(QPalette.Base, QColor(theme.BG))
+    pal.setColor(QPalette.AlternateBase, QColor(theme.SURFACE_2))
+    pal.setColor(QPalette.Text, QColor(theme.TEXT))
+    pal.setColor(QPalette.ToolTipBase, QColor(theme.SURFACE_2))
+    pal.setColor(QPalette.ToolTipText, QColor(theme.TEXT))
+    pal.setColor(QPalette.Highlight, QColor(theme.ACCENT))
+    pal.setColor(QPalette.HighlightedText, QColor(theme.ACCENT_INK))
     app.setPalette(pal)
+
+
+def apply_theme(app: QApplication, name: str) -> None:
+    """Switch to `name` ("dark"|"light"), rebuild QSS, refresh palette,
+    and re-polish every top-level widget so child widgets pick up the
+    new property values."""
+    theme.set_theme(name)
+    _apply_palette(app)
+    app.setStyleSheet(theme.QSS)
+    for w in app.allWidgets():
+        w.style().unpolish(w)
+        w.style().polish(w)
+        w.update()
 
 
 def run() -> int:
@@ -53,16 +65,26 @@ def run() -> int:
     if icon_path:
         app.setWindowIcon(QIcon(str(icon_path)))
 
-    _apply_palette(app)
-    app.setStyleSheet(QSS)
-
     settings = Settings.load()
+    theme.set_theme(settings.theme)
+    _apply_palette(app)
+    app.setStyleSheet(theme.QSS)
+
     daemon = Aria2Daemon(settings)
     rpc = Aria2RPC(settings)
     queue = QueueManager(settings, rpc)
     scheduler = Scheduler(settings.schedule)
 
     window = MainWindow(settings, queue, scheduler)
+
+    def _on_theme_toggled(name: str) -> None:
+        settings.theme = name
+        settings.save()
+        apply_theme(app, name)
+        window.titlebar.theme_btn.set_theme(name)
+
+    window.titlebar.theme_btn.toggled_theme.connect(_on_theme_toggled)
+
     window.show()
     app.processEvents()
 

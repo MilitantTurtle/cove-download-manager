@@ -10,10 +10,27 @@ Layout matches the cove-screen-recorder shell:
 """
 from __future__ import annotations
 
+import os
 import platform as _platform
+import shutil
+import subprocess
+import sys
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QDragEnterEvent,
+    QDropEvent,
+    QFont,
+    QGuiApplication,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPixmap,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -33,7 +50,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import APP_NAME, __version__
+from . import APP_NAME, __version__, theme
 from .clipboard import extract_urls
 from .config import Settings
 from .dialogs import (
@@ -80,6 +97,27 @@ def _human_speed(bps: int) -> str:
     return f"{_human_bytes(bps)}/s"
 
 
+def _human_cap(kbps: int) -> str:
+    """Friendly speed-cap display: 'Off' / 'N KB/s' / 'X.Y MB/s'."""
+    if kbps <= 0:
+        return "Off"
+    if kbps >= 1024:
+        return f"{kbps / 1024:.1f} MB/s"
+    return f"{kbps} KB/s"
+
+
+def _truncate_path(p: str, max_chars: int = 36) -> str:
+    """Shorten an absolute path for display: keep the last ~max_chars
+    characters with a leading ellipsis. The full path goes in a tooltip."""
+    home = str(Path.home())
+    s = p
+    if s.startswith(home):
+        s = "~" + s[len(home):]
+    if len(s) <= max_chars:
+        return s
+    return "…" + s[-(max_chars - 1):]
+
+
 def _platform_label() -> str:
     sys = _platform.system()
     if sys != "Linux":
@@ -92,6 +130,95 @@ def _platform_label() -> str:
     if session == "x11":
         return "Linux · X11"
     return "Linux"
+
+
+def _open_path(path: Path) -> bool:
+    """Open `path` with the OS default handler. Returns True on success."""
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", str(path)])
+            return True
+        if os.name == "nt":
+            os.startfile(str(path))  # type: ignore[attr-defined]
+            return True
+        # Linux / *BSD
+        if shutil.which("xdg-open"):
+            subprocess.Popen(["xdg-open", str(path)])
+            return True
+    except Exception:
+        return False
+    return False
+
+
+def _reveal_in_folder(path: Path) -> bool:
+    """Reveal `path` in the OS file manager (highlight it inside its
+    parent folder). Falls back to opening the parent directory."""
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(path)])
+            return True
+        if os.name == "nt":
+            subprocess.Popen(["explorer", "/select,", str(path)])
+            return True
+        # Linux: most file managers don't support a portable "reveal" flag,
+        # so open the containing directory. (DBus FileManager1 would work
+        # but is not universal.) When `path` is itself a directory (rare:
+        # someone right-clicked a folder), open it directly; otherwise
+        # always hand xdg-open the parent — for in-progress downloads the
+        # file may not exist on disk yet, but the parent does (the context
+        # menu's enablement check guarantees that).
+        target = path if path.is_dir() else path.parent
+        if not target.exists():
+            return False
+        if shutil.which("xdg-open"):
+            subprocess.Popen(["xdg-open", str(target)])
+            return True
+    except Exception:
+        return False
+    return False
+
+
+class DownloadTree(QTreeWidget):
+    """QTreeWidget that paints a centered placeholder when empty."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._empty_title = "No downloads yet"
+        self._empty_sub = (
+            "Press Ctrl+N to add a URL, or drop a link onto this window."
+        )
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.topLevelItemCount() != 0:
+            return
+        p = QPainter(self.viewport())
+        p.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.viewport().rect()
+        title_color = QColor(theme.TEXT_DIM)
+        sub_color = QColor(theme.TEXT_FAINT)
+
+        title_font = self.font()
+        title_font.setPointSizeF(12.0)
+        title_font.setWeight(QFont.Medium)
+        sub_font = self.font()
+        sub_font.setPointSizeF(9.5)
+
+        cy = rect.center().y() - 14
+        p.setFont(title_font)
+        p.setPen(title_color)
+        title_rect = rect.adjusted(0, 0, 0, 0)
+        title_rect.setHeight(rect.height())
+        title_metrics = p.fontMetrics()
+        tw = title_metrics.horizontalAdvance(self._empty_title)
+        p.drawText(int(rect.center().x() - tw / 2), cy, self._empty_title)
+
+        p.setFont(sub_font)
+        p.setPen(sub_color)
+        sub_metrics = p.fontMetrics()
+        sw = sub_metrics.horizontalAdvance(self._empty_sub)
+        p.drawText(int(rect.center().x() - sw / 2), cy + 24, self._empty_sub)
+        p.end()
 
 
 class MainWindow(QMainWindow):
@@ -114,6 +241,7 @@ class MainWindow(QMainWindow):
         self.resize(1180, 720)
         self.setMinimumSize(880, 540)
         self._resizer = FramelessResizer(self)
+        self.setAcceptDrops(True)
 
         self._build_ui()
         self._wire_signals()
@@ -152,7 +280,12 @@ class MainWindow(QMainWindow):
         outer.setSpacing(0)
 
         # Titlebar
-        self.titlebar = Titlebar(self, f"{APP_NAME} Download Manager", __version__)
+        self.titlebar = Titlebar(
+            self,
+            f"{APP_NAME} Download Manager",
+            __version__,
+            theme_name=self.settings.theme,
+        )
         outer.addWidget(self.titlebar)
 
         # Body
@@ -161,22 +294,17 @@ class MainWindow(QMainWindow):
         body_lay.setContentsMargins(28, 24, 28, 16)
         body_lay.setSpacing(18)
 
-        # Hero
+        # Hero — single tagline + status pill (titlebar already shows the
+        # product name; a duplicate H1 here just steals vertical space).
         hero = QHBoxLayout()
         hero.setSpacing(16)
-        hero_text = QVBoxLayout()
-        hero_text.setSpacing(4)
-        h1 = QLabel(f"{APP_NAME} Download Manager")
-        h1.setProperty("role", "hero-h1")
         sub = QLabel(
             "Multi-connection downloads with a queue, schedule, and a global speed cap."
         )
         sub.setProperty("role", "hero-sub")
-        hero_text.addWidget(h1)
-        hero_text.addWidget(sub)
-        hero.addLayout(hero_text, 1)
+        hero.addWidget(sub, 1, Qt.AlignVCenter)
         self.status_pill = StatusPill("Idle")
-        hero.addWidget(self.status_pill, 0, Qt.AlignTop)
+        hero.addWidget(self.status_pill, 0, Qt.AlignVCenter)
         body_lay.addLayout(hero)
 
         # Stats strip
@@ -184,7 +312,7 @@ class MainWindow(QMainWindow):
         self.stats.add_cell("Active", "0")
         self.stats.add_cell("Queued", "0")
         self.stats.add_cell("Total", "—")
-        self.stats.add_cell("Cap", "Unlimited", last=True)
+        self.stats.add_cell("Speed limit", "Off", last=True)
         body_lay.addWidget(self.stats)
 
         # Two-column area
@@ -205,7 +333,9 @@ class MainWindow(QMainWindow):
         self.footer.add_hotkey("From Clipboard", "Ctrl + Shift + V")
         self.footer.add_hotkey("Toggle Queue", "Ctrl + P")
         self.footer.set_platform(_platform_label())
+        self.footer.folder_clicked.connect(self._open_downloads_folder)
         outer.addWidget(self.footer)
+        self._refresh_folder_chip()
 
         self.setCentralWidget(chrome)
 
@@ -222,7 +352,7 @@ class MainWindow(QMainWindow):
         label.setProperty("role", "section-label")
         stage.addWidget(label)
 
-        self.tree = QTreeWidget()
+        self.tree = DownloadTree()
         self.tree.setColumnCount(5)
         self.tree.setHeaderLabels(["Name", "Status", "Progress", "Size", "Speed"])
         self.tree.setRootIsDecorated(False)
@@ -334,6 +464,11 @@ class MainWindow(QMainWindow):
         self.clip_btn.clicked.connect(self._add_from_clipboard)
         row.addWidget(self.clip_btn)
 
+        self.open_folder_btn = QPushButton("Open downloads folder")
+        self.open_folder_btn.setToolTip("Reveal where new downloads are saved")
+        self.open_folder_btn.clicked.connect(self._open_downloads_folder)
+        row.addWidget(self.open_folder_btn)
+
         self.settings_btn = QPushButton("Settings")
         self.settings_btn.clicked.connect(self._open_settings)
         row.addWidget(self.settings_btn)
@@ -375,6 +510,7 @@ class MainWindow(QMainWindow):
             return
         self.settings.download_dir = dlg.get_dir()
         self.settings.save()
+        self._refresh_folder_chip()
         self.queue.add_urls(urls)
 
     def _add_from_clipboard(self) -> None:
@@ -419,6 +555,7 @@ class MainWindow(QMainWindow):
             self.queue.set_max_concurrent(self.settings.max_concurrent)
             self._apply_speed_limit()
             self._refresh_schedule_section()
+            self._refresh_folder_chip()
 
     def _clear_completed(self, delete_files: bool) -> None:
         completed = [t for t in self.queue.tasks.values() if t.status == "completed"]
@@ -451,8 +588,8 @@ class MainWindow(QMainWindow):
         kbps = self.settings.overall_speed_limit_kbps
         effective = kbps if self.settings.speed_limiter_enabled else 0
         self.queue.set_overall_speed_limit(effective)
-        cap = "Unlimited" if effective == 0 else f"{effective} KB/s"
-        self.stats.set_value("Cap", cap)
+        cap = _human_cap(effective)
+        self.stats.set_value("Speed limit", cap)
 
     # ---- context menu --------------------------------------------------
 
@@ -506,12 +643,35 @@ class MainWindow(QMainWindow):
                 if tid not in selected:
                     self.tree.setCurrentItem(item)
                     selected = [tid]
+                # Open / reveal — for finished or in-progress files.
+                file_path = self._task_path(task)
+                if task.status == "completed" and file_path is not None:
+                    open_a = menu.addAction("Open file")
+                    open_a.setEnabled(file_path.exists())
+                    open_a.triggered.connect(
+                        lambda _=False, p=file_path: _open_path(p)
+                    )
+                if file_path is not None:
+                    reveal_a = menu.addAction("Show in folder")
+                    reveal_a.setEnabled(
+                        file_path.exists() or file_path.parent.exists()
+                    )
+                    reveal_a.triggered.connect(
+                        lambda _=False, p=file_path: _reveal_in_folder(p)
+                    )
+                if task.status == "completed" or file_path is not None:
+                    menu.addSeparator()
                 if task.status in {"queued", "active"}:
                     menu.addAction("Pause").triggered.connect(
                         lambda: [self.queue.pause(t) for t in selected]
                     )
-                if task.status in {"paused", "error"}:
+                if task.status == "paused":
                     menu.addAction("Resume").triggered.connect(
+                        lambda: [self.queue.resume(t) for t in selected]
+                    )
+                if task.status == "error":
+                    retry_a = menu.addAction("Retry")
+                    retry_a.triggered.connect(
                         lambda: [self.queue.resume(t) for t in selected]
                     )
                 menu.addSeparator()
@@ -599,6 +759,22 @@ class MainWindow(QMainWindow):
         item.setText(COL_NAME, name)
         item.setToolTip(COL_NAME, task.error or task.url)
         item.setText(COL_STATUS, _status_label(task.status))
+        # Persistent state coloring on the Status column so an error (or
+        # paused) row stays visually distinct after the StatusPill flash
+        # has reverted.
+        if task.status == "error":
+            item.setForeground(COL_STATUS, QColor(theme.REC))
+            if task.error:
+                item.setToolTip(COL_STATUS, task.error)
+        elif task.status == "paused":
+            item.setForeground(COL_STATUS, QColor(theme.WARN))
+            item.setToolTip(COL_STATUS, "")
+        elif task.status == "completed":
+            item.setForeground(COL_STATUS, QColor(theme.ACCENT))
+            item.setToolTip(COL_STATUS, "")
+        else:
+            item.setForeground(COL_STATUS, QColor(theme.TEXT_DIM))
+            item.setToolTip(COL_STATUS, "")
         completed = task.interpolated_completed_bytes()
         if task.total_bytes > 0:
             pct = int(completed * 100 / task.total_bytes)
@@ -635,13 +811,13 @@ class MainWindow(QMainWindow):
         speed = sum(t.download_speed for t in self.queue.tasks.values() if t.status == "active")
         kbps = self.settings.overall_speed_limit_kbps
         if kbps == 0 or not self.settings.speed_limiter_enabled:
-            cap_text = "Unlimited"
+            cap_text = "Off"
         else:
-            cap_text = f"{kbps} KB/s"
+            cap_text = _human_cap(kbps)
         self.stats.set_value("Active", str(active))
         self.stats.set_value("Queued", str(queued))
         self.stats.set_value("Total", _human_speed(speed) if speed > 0 else "—")
-        self.stats.set_value("Cap", cap_text)
+        self.stats.set_value("Speed limit", cap_text)
 
     def _refresh_status_pill(self) -> None:
         if not self.queue.is_running:
@@ -672,6 +848,61 @@ class MainWindow(QMainWindow):
         self.schedule_state_label.setText(f"{start} – {end}")
         tag = "within window" if self.scheduler.allowed else "outside window"
         self.schedule_window_label.setText(f"{on_days} · {tag}")
+
+    # ── Output folder / file actions ──────────────────────────────
+
+    def _task_path(self, task: DownloadTask) -> Path | None:
+        """Best-effort path to a task's destination file. Returns None if
+        the filename hasn't been resolved by aria2 yet."""
+        if not task.filename:
+            return None
+        return Path(task.out_dir) / task.filename
+
+    def _open_downloads_folder(self) -> None:
+        """Open the configured default download folder. If it doesn't
+        exist yet, fall back to the user's home directory."""
+        path = Path(self.settings.download_dir)
+        if not path.exists():
+            path = Path.home()
+        _open_path(path)
+
+    def _refresh_folder_chip(self) -> None:
+        path = self.settings.download_dir
+        self.footer.set_folder(path, _truncate_path(path))
+
+    # ── Drag-and-drop URL ingest ──────────────────────────────────
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # type: ignore[override]
+        md = event.mimeData()
+        if md.hasUrls() or md.hasText():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QDropEvent) -> None:  # type: ignore[override]
+        md = event.mimeData()
+        urls: list[str] = []
+        if md.hasUrls():
+            for u in md.urls():
+                s = u.toString()
+                if s:
+                    urls.append(s)
+        # Browsers usually also include text/plain — and on some Linux
+        # setups that's the only thing they hand over. Fall back to it.
+        if md.hasText():
+            for line in md.text().splitlines():
+                s = line.strip()
+                if s and s not in urls:
+                    urls.append(s)
+        urls = [u for u in urls if not u.startswith("file://")]
+        if not urls:
+            event.ignore()
+            return
+        added = self.queue.add_urls(urls)
+        if added:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
 
 def _fmt_time(hour: int, minute: int, use_24h: bool) -> str:
