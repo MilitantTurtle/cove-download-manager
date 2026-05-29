@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS downloads (
     finished_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_downloads_status ON downloads(status);
+CREATE INDEX IF NOT EXISTS idx_downloads_gid ON downloads(gid);
 """
 
 

@@ -170,6 +170,13 @@ class Aria2RPC:
         self.timeout = timeout
         self._session = requests.Session()
 
+    def close(self) -> None:
+        """Release the underlying HTTP connection pool."""
+        self._session.close()
+
+    def __del__(self) -> None:
+        self.close()
+
     def _call(self, method: str, params: Iterable[Any] = ()) -> Any:
         payload = {
             "jsonrpc": "2.0",

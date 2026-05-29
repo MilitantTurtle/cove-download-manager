@@ -836,9 +836,15 @@ class MainWindow(QMainWindow):
                 self._render(task)
 
     def _refresh_stats(self) -> None:
-        active = sum(1 for t in self.queue.tasks.values() if t.status == "active")
-        queued = sum(1 for t in self.queue.tasks.values() if t.status == "queued")
-        speed = sum(t.download_speed for t in self.queue.tasks.values() if t.status == "active")
+        active = 0
+        queued = 0
+        speed = 0
+        for t in self.queue.tasks.values():
+            if t.status == "active":
+                active += 1
+                speed += t.download_speed
+            elif t.status == "queued":
+                queued += 1
         kbps = self.settings.overall_speed_limit_kbps
         if kbps == 0 or not self.settings.speed_limiter_enabled:
             cap_text = "Off"

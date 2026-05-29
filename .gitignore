@@ -24,3 +24,10 @@ cove/cove_icon.png
 .idea/
 .DS_Store
 Thumbs.db
+AGENTS.md
+.claudeignore
+
+.codex-reviews/
+
+# Session aids (orientation snapshots)
+*-orientation.md
