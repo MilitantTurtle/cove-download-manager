@@ -8,13 +8,11 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "cove-dm@cove-download-manager.net",
-      "strict_min_version": "91.0"
+      "strict_min_version": "91.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
     }
-  },
-
-  "data_collection_permissions": {
-    "storageSync": false,
-    "storageLocal": true
   },
 
   "permissions": [
