@@ -1,0 +1,57 @@
+{
+  "manifest_version": 2,
+  "name": "Cove Download Manager",
+  "version": "1.0.0",
+  "description": "Intercept downloads and send them to Cove Download Manager.",
+  "author": "Sin",
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "cove-dm@cove-download-manager.net",
+      "strict_min_version": "91.0"
+    }
+  },
+
+  "permissions": [
+    "downloads",
+    "cookies",
+    "contextMenus",
+    "nativeMessaging",
+    "notifications",
+    "storage",
+    "<all_urls>"
+  ],
+
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": true
+  },
+
+  "browser_action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    },
+    "default_title": "Cove Download Manager"
+  },
+
+  "options_ui": {
+    "page": "options/options.html",
+    "browser_style": false
+  },
+
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  },
+
+  "commands": {
+    "toggle-intercept": {
+      "suggested_key": { "default": "Alt+Shift+D" },
+      "description": "Toggle download interception on/off"
+    }
+  }
+}
