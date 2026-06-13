@@ -218,6 +218,7 @@ class Aria2RPC:
         connections: int,
         speed_limit_kbps: int = 0,
         filename: str | None = None,
+        headers: list[str] | None = None,
     ) -> str:
         opts: dict[str, str] = {
             "dir": out_dir,
@@ -229,6 +230,8 @@ class Aria2RPC:
             opts["max-download-limit"] = f"{speed_limit_kbps}K"
         if filename:
             opts["out"] = filename
+        if headers:
+            opts["header"] = headers
         return self._call("aria2.addUri", [uris, opts])
 
     def pause(self, gid: str) -> str:
