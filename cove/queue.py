@@ -159,30 +159,48 @@ class QueueManager(QObject):
             self.tasks[t.id] = t
 
     def _check_external(self) -> None:
-        """Pick up downloads inserted by the native messaging host."""
-        try:
-            with db.connect() as conn:
-                rows = conn.execute(
-                    "SELECT * FROM downloads WHERE status='active' AND gid IS NOT NULL"
-                ).fetchall()
-        except Exception:
-            return
-        for row in rows:
-            if row["id"] in self.tasks:
-                continue
-            t = DownloadTask(
-                id=row["id"],
-                url=row["url"],
-                out_dir=row["out_dir"],
-                connections=row["connections"],
-                speed_limit_kbps=row["speed_limit_kbps"],
-                filename=row["filename"],
-                gid=row["gid"],
-                status="active",
-                created_at=row["created_at"],
-            )
-            self.tasks[t.id] = t
-            self.task_added.emit(t.id)
+        """Pick up downloads added to aria2 externally (e.g. browser extension)."""
+        known_gids = {t.gid for t in self.tasks.values() if t.gid}
+
+        def on_done(active_list):
+            for dl in active_list:
+                gid = dl.get("gid")
+                if not gid or gid in known_gids:
+                    continue
+                files = dl.get("files") or []
+                url = ""
+                filename = None
+                out_dir = self.settings.download_dir
+                if files:
+                    uris = files[0].get("uris") or []
+                    if uris:
+                        url = uris[0].get("uri", "")
+                    path = files[0].get("path", "")
+                    if path:
+                        from pathlib import Path
+                        p = Path(path)
+                        filename = p.name
+                        out_dir = str(p.parent)
+                with db.connect() as conn:
+                    cur = conn.execute(
+                        """INSERT INTO downloads
+                            (url, filename, out_dir, connections,
+                             speed_limit_kbps, status, gid, created_at)
+                        VALUES (?,?,?,?,?,?,?,?)""",
+                        (url, filename, out_dir,
+                         self.settings.connections_per_server, 0,
+                         "active", gid, time.time()),
+                    )
+                    tid = cur.lastrowid
+                t = DownloadTask(
+                    id=tid, url=url, out_dir=out_dir,
+                    connections=self.settings.connections_per_server,
+                    filename=filename, gid=gid, status="active",
+                )
+                self.tasks[tid] = t
+                self.task_added.emit(tid)
+
+        self._spawn(self.rpc.tell_active, on_done=on_done, on_fail=lambda *_: None)
 
     def _persist(self, t: DownloadTask) -> None:
         with db.connect() as conn:

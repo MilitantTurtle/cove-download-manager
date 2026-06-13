@@ -15,10 +15,7 @@ import struct
 import sys
 from typing import Any
 
-import time
-
 from . import __version__
-from . import db
 from .aria2 import Aria2RPC, Aria2Error
 from .config import Settings
 
@@ -91,23 +88,6 @@ def handle_message(
                 headers=headers if headers else None,
                 filename=filename,
             )
-            # Insert into Cove's DB so the GUI picks it up.
-            try:
-                db.init()
-                with db.connect() as conn:
-                    conn.execute(
-                        """
-                        INSERT INTO downloads
-                            (url, filename, out_dir, connections,
-                             speed_limit_kbps, status, gid, created_at)
-                        VALUES (?,?,?,?,?,?,?,?)
-                        """,
-                        (url, filename, out_dir,
-                         settings.connections_per_server, 0,
-                         "active", gid, time.time()),
-                    )
-            except Exception:
-                pass
             return {"status": "ok", "gid": gid, "message": "Download added to Cove"}
         except Aria2Error as e:
             return {"status": "error", "message": str(e)}
