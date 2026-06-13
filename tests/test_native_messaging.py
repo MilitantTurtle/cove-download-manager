@@ -109,6 +109,15 @@ def test_handle_download_missing_url():
     assert result["status"] == "error"
 
 
+def test_handle_status():
+    mock_rpc = MagicMock()
+    mock_rpc.tell_active.return_value = [{"gid": "abc", "status": "active"}]
+    result = handle_message({"action": "status"}, rpc=mock_rpc, settings=MagicMock())
+    assert result["status"] == "ok"
+    assert result["downloads"] == [{"gid": "abc", "status": "active"}]
+    mock_rpc.tell_active.assert_called_once()
+
+
 def test_handle_unknown_action():
     result = handle_message({"action": "unknown"}, rpc=None, settings=None)
     assert result["status"] == "error"
