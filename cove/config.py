@@ -5,8 +5,15 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import List
 
-CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "cove"
-DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "cove"
+from .portable import is_portable, portable_data_dir
+
+if is_portable():
+    _portable = Path(portable_data_dir("cove-download-manager"))
+    CONFIG_DIR = _portable
+    DATA_DIR = _portable
+else:
+    CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "cove"
+    DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "cove"
 CONFIG_FILE = CONFIG_DIR / "settings.json"
 DB_FILE = DATA_DIR / "cove.db"
 ARIA2_SESSION = DATA_DIR / "aria2.session"
