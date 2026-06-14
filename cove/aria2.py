@@ -129,6 +129,9 @@ class Aria2Daemon:
             args.append(
                 f"--max-overall-download-limit={self.settings.overall_speed_limit_kbps}K"
             )
+        if self.settings.proxy_type != "none" and self.settings.proxy_host:
+            proxy_url = self._build_proxy_url()
+            args.append(f"--all-proxy={proxy_url}")
         self._proc = subprocess.Popen(
             args,
             stdout=subprocess.DEVNULL,
@@ -148,6 +151,18 @@ class Aria2Daemon:
                 time.sleep(0.1)
         self.stop()
         raise Aria2Error(f"aria2 RPC did not come up: {last_err}")
+
+    def _build_proxy_url(self) -> str:
+        from urllib.parse import quote
+        s = self.settings
+        scheme = s.proxy_type if s.proxy_type in ("http", "https", "socks5") else "http"
+        auth = ""
+        if s.proxy_username:
+            user = quote(s.proxy_username, safe="")
+            pwd = quote(s.proxy_password, safe="") if s.proxy_password else ""
+            auth = f"{user}:{pwd}@" if pwd else f"{user}@"
+        port = f":{s.proxy_port}" if s.proxy_port else ""
+        return f"{scheme}://{auth}{s.proxy_host}{port}"
 
     def stop(self) -> None:
         if not self._proc:
@@ -273,6 +288,8 @@ class Aria2RPC:
                     "errorMessage",
                     "connections",
                     "dir",
+                    "bitfield",
+                    "numPieces",
                 ],
             ],
         )

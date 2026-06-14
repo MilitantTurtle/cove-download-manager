@@ -37,6 +37,27 @@ class ScheduleWindow:
 
 CONNECTION_CHOICES = (1, 2, 4, 8, 16, 24, 32)
 
+CATEGORY_MAP: dict[str, set[str]] = {
+    "Documents": {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+                  ".odt", ".ods", ".odp", ".txt", ".rtf", ".csv"},
+    "Videos": {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v"},
+    "Music": {".mp3", ".flac", ".wav", ".aac", ".ogg", ".wma", ".m4a", ".opus"},
+    "Archives": {".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".zst"},
+    "Programs": {".exe", ".msi", ".deb", ".rpm", ".dmg", ".appimage", ".sh", ".run"},
+    "Images": {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".ico", ".tiff"},
+}
+DEFAULT_CATEGORY = "Other"
+
+
+def categorize(filename: str) -> str:
+    ext = Path(filename).suffix.lower() if filename else ""
+    if not ext:
+        return DEFAULT_CATEGORY
+    for cat, exts in CATEGORY_MAP.items():
+        if ext in exts:
+            return cat
+    return DEFAULT_CATEGORY
+
 
 def _new_rpc_secret() -> str:
     """Per-install random token. 24 bytes ≈ 32 chars urlsafe-base64."""
@@ -56,6 +77,13 @@ class Settings:
     theme: str = "dark"  # "dark" | "light"
     rpc_port: int = 6800
     rpc_secret: str = ""  # populated on first save; never persisted as "cove"
+    proxy_type: str = "none"  # "none" | "http" | "https" | "socks5"
+    proxy_host: str = ""
+    proxy_port: int = 0
+    proxy_username: str = ""
+    proxy_password: str = ""
+    auto_sort_categories: bool = False
+    intelligent_segments: bool = True
     schedule: ScheduleWindow = field(default_factory=ScheduleWindow)
 
     @classmethod

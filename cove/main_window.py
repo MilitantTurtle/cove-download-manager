@@ -18,10 +18,11 @@ import sys
 from math import ceil
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QMimeData, Qt, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QColor,
+    QDrag,
     QDragEnterEvent,
     QDropEvent,
     QFont,
@@ -69,15 +70,17 @@ from .widgets import (
     StatsStrip,
     StatusPill,
     Titlebar,
+    _hex_to_bits,
     find_icon,
 )
 
 # Tree column indices.
 COL_NAME = 0
-COL_STATUS = 1
-COL_PROGRESS = 2
-COL_SIZE = 3
-COL_SPEED = 4
+COL_CATEGORY = 1
+COL_STATUS = 2
+COL_PROGRESS = 3
+COL_SIZE = 4
+COL_SPEED = 5
 
 
 def _human_bytes(n: int) -> str:
@@ -216,6 +219,28 @@ class DownloadTree(QTreeWidget):
         self._empty_sub = (
             "Press Ctrl+N to add a URL, or drop a link onto this window."
         )
+        self._get_task = None  # set by MainWindow after construction
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragOnly)
+
+    def startDrag(self, supported_actions):
+        if not self._get_task:
+            return
+        file_paths = []
+        for item in self.selectedItems():
+            tid = item.data(0, Qt.UserRole)
+            task = self._get_task(tid)
+            if task and task.status == "completed" and task.filename:
+                p = Path(task.out_dir) / task.filename
+                if p.exists():
+                    file_paths.append(p)
+        if not file_paths:
+            return
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(p)) for p in file_paths])
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.exec(Qt.CopyAction)
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -359,7 +384,8 @@ class MainWindow(QMainWindow):
         # Footer
         self.footer = Footer()
         self.footer.add_hotkey("Add", "Ctrl + N")
-        self.footer.add_hotkey("From Clipboard", "Ctrl + Shift + V")
+        self.footer.add_hotkey("Paste", "Ctrl + V")
+        self.footer.add_hotkey("Pause/Resume", "Space")
         self.footer.add_hotkey("Toggle Queue", "Ctrl + P")
         self.footer.set_platform(_platform_label())
         self.footer.folder_clicked.connect(self._open_downloads_folder)
@@ -372,6 +398,8 @@ class MainWindow(QMainWindow):
         self._add_shortcut("Ctrl+N", self._add_download)
         self._add_shortcut("Ctrl+Shift+V", self._add_from_clipboard)
         self._add_shortcut("Ctrl+P", self._toggle_queue)
+        self._add_shortcut("Ctrl+V", self._paste_urls)
+        self._add_shortcut("Ctrl+A", self.tree.selectAll)
 
     def _build_stage(self) -> QVBoxLayout:
         stage = QVBoxLayout()
@@ -382,8 +410,8 @@ class MainWindow(QMainWindow):
         stage.addWidget(label)
 
         self.tree = DownloadTree()
-        self.tree.setColumnCount(5)
-        self.tree.setHeaderLabels(["Name", "Status", "Progress", "Size", "Speed"])
+        self.tree.setColumnCount(6)
+        self.tree.setHeaderLabels(["Name", "Category", "Status", "Progress", "Size", "Speed"])
         self.tree.setRootIsDecorated(False)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
@@ -395,12 +423,14 @@ class MainWindow(QMainWindow):
         header.setStretchLastSection(False)
         for col in range(self.tree.columnCount()):
             header.setSectionResizeMode(col, QHeaderView.Interactive)
-        header.resizeSection(COL_NAME, 360)
-        header.resizeSection(COL_STATUS, 120)
+        header.resizeSection(COL_NAME, 300)
+        header.resizeSection(COL_CATEGORY, 90)
+        header.resizeSection(COL_STATUS, 100)
         header.resizeSection(COL_PROGRESS, 220)
-        header.resizeSection(COL_SIZE, 170)
+        header.resizeSection(COL_SIZE, 160)
         header.resizeSection(COL_SPEED, 160)
         stage.addWidget(self.tree, 1)
+        self.tree._get_task = lambda tid: self.queue.tasks.get(tid)
 
         self._items: dict[int, QTreeWidgetItem] = {}
         self._bars: dict[int, QProgressBar] = {}
@@ -410,6 +440,9 @@ class MainWindow(QMainWindow):
         del_sc = QShortcut(QKeySequence(Qt.Key_Delete), self.tree)
         del_sc.setContext(Qt.WidgetShortcut)
         del_sc.activated.connect(lambda: self._remove_selected(delete_file=False))
+        space_sc = QShortcut(QKeySequence(Qt.Key_Space), self.tree)
+        space_sc.setContext(Qt.WidgetShortcut)
+        space_sc.activated.connect(self._toggle_selected)
         return stage
 
     def _build_panel(self) -> QVBoxLayout:
@@ -560,6 +593,22 @@ class MainWindow(QMainWindow):
                 selected_dir = dlg.get_dir()
                 self.queue.add_urls(chosen, selected_dir)
 
+    def _paste_urls(self) -> None:
+        text = QGuiApplication.clipboard().text() or ""
+        urls = extract_urls(text)
+        if urls:
+            self.queue.add_urls(urls)
+
+    def _toggle_selected(self) -> None:
+        for tid in self._selected_tids():
+            t = self.queue.tasks.get(tid)
+            if not t:
+                continue
+            if t.status in {"queued", "active"}:
+                self.queue.pause(tid)
+            elif t.status in {"paused", "error"}:
+                self.queue.resume(tid)
+
     def _toggle_queue(self) -> None:
         if self.queue.is_running:
             self.queue.stop_queue()
@@ -698,6 +747,10 @@ class MainWindow(QMainWindow):
                     menu.addAction("Pause").triggered.connect(
                         lambda: [self.queue.pause(t) for t in selected]
                     )
+                if task.status == "queued":
+                    menu.addAction("Start now").triggered.connect(
+                        lambda: [self.queue.force_start(t) for t in selected]
+                    )
                 if task.status == "paused":
                     menu.addAction("Resume").triggered.connect(
                         lambda: [self.queue.resume(t) for t in selected]
@@ -735,7 +788,7 @@ class MainWindow(QMainWindow):
         task = self.queue.tasks.get(tid)
         if not task:
             return
-        item = QTreeWidgetItem(["", "", "", "", ""])
+        item = QTreeWidgetItem(["", "", "", "", "", ""])
         item.setData(0, Qt.UserRole, tid)
         self.tree.addTopLevelItem(item)
         bar = QProgressBar()
@@ -791,6 +844,7 @@ class MainWindow(QMainWindow):
         name = task.filename or task.url
         item.setText(COL_NAME, name)
         item.setToolTip(COL_NAME, task.error or task.url)
+        item.setText(COL_CATEGORY, task.category)
         item.setText(COL_STATUS, _status_label(task.status))
         # Persistent state coloring on the Status column so an error (or
         # paused) row stays visually distinct after the StatusPill flash
@@ -812,10 +866,14 @@ class MainWindow(QMainWindow):
         if task.total_bytes > 0:
             pct = int(completed * 100 / task.total_bytes)
             bar.setValue(pct)
-            bar.setFormat(f"{pct}%")
+            seg_hint = f" [{task.segments}x]" if task.segments > 1 else ""
+            bar.setFormat(f"{pct}%{seg_hint}")
         else:
             bar.setValue(100 if task.status == "completed" else 0)
             bar.setFormat("100%" if task.status == "completed" else "—")
+        if task.num_pieces > 0 and task.bitfield:
+            done = sum(1 for b in _hex_to_bits(task.bitfield, task.num_pieces) if b)
+            bar.setToolTip(f"Pieces: {done}/{task.num_pieces}")
         size_text = (
             f"{_human_bytes(completed)} / {_human_bytes(task.total_bytes)}"
             if task.total_bytes

@@ -18,7 +18,7 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
 
 from . import db
 from .aria2 import Aria2Error, Aria2RPC
-from .config import Settings
+from .config import Settings, categorize
 
 URL_RE = re.compile(r"https?://\S+|ftp://\S+|magnet:\?\S+")
 
@@ -39,7 +39,11 @@ class DownloadTask:
     error: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     finished_at: Optional[float] = None
-    last_status_at: float = 0.0  # wall-clock when completed_bytes/speed last updated
+    category: str = "Other"
+    segments: int = 0
+    bitfield: str = ""
+    num_pieces: int = 0
+    last_status_at: float = 0.0
 
     @property
     def progress(self) -> float:
@@ -155,6 +159,8 @@ class QueueManager(QObject):
                 total_bytes=row["total_bytes"],
                 completed_bytes=row["completed_bytes"],
                 created_at=row["created_at"],
+                category=row["category"],
+                segments=row["segments"],
             )
             self.tasks[t.id] = t
 
@@ -208,7 +214,7 @@ class QueueManager(QObject):
                 """
                 UPDATE downloads
                 SET filename=?, status=?, gid=?, total_bytes=?, completed_bytes=?,
-                    error=?, finished_at=?
+                    error=?, finished_at=?, category=?, segments=?
                 WHERE id=?
                 """,
                 (
@@ -219,6 +225,8 @@ class QueueManager(QObject):
                     t.completed_bytes,
                     t.error,
                     t.finished_at,
+                    t.category,
+                    t.segments,
                     t.id,
                 ),
             )
@@ -229,13 +237,18 @@ class QueueManager(QObject):
         url = url.strip()
         if not URL_RE.match(url):
             return None
+        import posixpath
+        from urllib.parse import unquote, urlparse
         dest_dir = out_dir or self.settings.download_dir
+        url_filename = unquote(posixpath.basename(urlparse(url).path))
+        category = categorize(url_filename)
         with db.connect() as conn:
             cur = conn.execute(
                 """
                 INSERT INTO downloads
-                    (url, out_dir, connections, speed_limit_kbps, status, created_at)
-                VALUES (?,?,?,?,?,?)
+                    (url, out_dir, connections, speed_limit_kbps, status,
+                     created_at, category)
+                VALUES (?,?,?,?,?,?,?)
                 """,
                 (
                     url,
@@ -244,6 +257,7 @@ class QueueManager(QObject):
                     0,
                     "queued",
                     time.time(),
+                    category,
                 ),
             )
             tid = cur.lastrowid
@@ -252,6 +266,7 @@ class QueueManager(QObject):
             url=url,
             out_dir=dest_dir,
             connections=self.settings.connections_per_server,
+            category=category,
         )
         self.tasks[tid] = t
         self.task_added.emit(tid)
@@ -299,6 +314,12 @@ class QueueManager(QObject):
             self._persist(t)
             self.task_changed.emit(tid)
             self._maybe_start_next()
+
+    def force_start(self, tid: int) -> None:
+        t = self.tasks.get(tid)
+        if not t or t.status != "queued":
+            return
+        self._launch(t)
 
     def remove(self, tid: int, delete_file: bool = False) -> None:
         t = self.tasks.get(tid)
@@ -495,15 +516,62 @@ class QueueManager(QObject):
             self.task_changed.emit(tid)
             self._maybe_start_next()
 
-        self._spawn(
-            self.rpc.add_uri,
-            [t.url],
-            t.out_dir,
-            t.connections,
-            t.speed_limit_kbps,
-            t.filename,
-            on_done=on_done,
-            on_fail=on_fail,
+        is_http = t.url.startswith("http://") or t.url.startswith("https://")
+        if self.settings.intelligent_segments and is_http:
+            self._spawn(
+                self._probe_and_add,
+                t,
+                on_done=on_done,
+                on_fail=on_fail,
+            )
+        else:
+            self._spawn(
+                self.rpc.add_uri,
+                [t.url],
+                t.out_dir,
+                t.connections,
+                t.speed_limit_kbps,
+                t.filename,
+                on_done=on_done,
+                on_fail=on_fail,
+            )
+
+    @staticmethod
+    def _compute_segments(supports_range: bool, content_length: int, max_conn: int) -> int:
+        if not supports_range:
+            return 1
+        if content_length < 1_048_576:
+            return 1
+        if content_length < 10_485_760:
+            return min(4, max_conn)
+        if content_length < 104_857_600:
+            return min(8, max_conn)
+        return max_conn
+
+    def _probe_and_add(self, t: DownloadTask) -> str:
+        import requests as _requests
+        probed = False
+        supports_range = False
+        content_length = 0
+        try:
+            resp = _requests.head(t.url, timeout=5, allow_redirects=True)
+            if resp.ok:
+                probed = True
+                supports_range = resp.headers.get("Accept-Ranges", "").lower() == "bytes"
+                try:
+                    content_length = int(resp.headers.get("Content-Length", 0))
+                except (TypeError, ValueError):
+                    content_length = 0
+        except Exception:
+            pass
+        if probed:
+            segments = self._compute_segments(supports_range, content_length, t.connections)
+        else:
+            segments = t.connections
+        t.segments = segments
+        return self.rpc.add_uri(
+            [t.url], t.out_dir, segments,
+            t.speed_limit_kbps, t.filename,
         )
 
     def _on_unpause_failed(self, tid: int, msg: str) -> None:
@@ -555,16 +623,20 @@ class QueueManager(QObject):
             t.last_status_at = time.time()
         except (TypeError, ValueError):
             pass
+        t.bitfield = status.get("bitfield", "")
+        t.num_pieces = int(status.get("numPieces", 0) or 0)
         files = status.get("files") or []
         if files and not t.filename:
             path = files[0].get("path") or ""
             if path:
                 from pathlib import Path
                 t.filename = Path(path).name
+                t.category = categorize(t.filename)
         a2_status = status.get("status")
         if a2_status == "complete":
             t.status = "completed"
             t.finished_at = time.time()
+            self._auto_sort(t)
             self._persist(t)
             self.task_changed.emit(tid)
             self._maybe_start_next()
@@ -580,6 +652,37 @@ class QueueManager(QObject):
             # pause/active intent — Cove drives those transitions via explicit
             # RPC calls and waits for the on_done callback.
             self.task_changed.emit(tid)
+
+    def _auto_sort(self, t: DownloadTask) -> None:
+        if not self.settings.auto_sort_categories or not t.filename:
+            return
+        import os
+        import shutil
+        cat_dir = os.path.join(t.out_dir, t.category)
+        src = os.path.join(t.out_dir, t.filename)
+        if not os.path.isfile(src):
+            return
+        try:
+            os.makedirs(cat_dir, exist_ok=True)
+        except OSError:
+            return
+        dst_name = t.filename
+        dst = os.path.join(cat_dir, dst_name)
+        if os.path.exists(dst):
+            from pathlib import Path
+            stem = Path(dst_name).stem
+            suffix = Path(dst_name).suffix
+            n = 1
+            while os.path.exists(dst):
+                n += 1
+                dst_name = f"{stem} ({n}){suffix}"
+                dst = os.path.join(cat_dir, dst_name)
+        try:
+            shutil.move(src, dst)
+        except OSError:
+            return
+        t.out_dir = cat_dir
+        t.filename = dst_name
 
     def _task_path(self, t: DownloadTask):
         if not t.filename:

@@ -302,11 +302,61 @@ class SettingsDialog(QDialog):
         self.auto_update.setToolTip(
             "When enabled, Cove pings GitHub Releases on launch and prompts "
             "you if a newer version is available. Updates are never installed "
-            "silently — you'll always be asked first."
+            "silently - you'll always be asked first."
         )
         form.addRow("Updates", self.auto_update)
 
+        self.auto_sort = QCheckBox("Auto-sort downloads into category folders")
+        self.auto_sort.setChecked(settings.auto_sort_categories)
+        self.auto_sort.setToolTip(
+            "When enabled, downloads are saved into subfolders (Videos, Music, "
+            "Documents, Archives, Programs, Images, Other) based on file extension."
+        )
+        form.addRow("Categories", self.auto_sort)
+
+        self.smart_segments = QCheckBox("Auto-tune connections based on server support")
+        self.smart_segments.setChecked(settings.intelligent_segments)
+        self.smart_segments.setToolTip(
+            "Probes the server before downloading to check Range header support "
+            "and adjusts the number of connections based on file size."
+        )
+        form.addRow("Smart segments", self.smart_segments)
+
         layout.addLayout(form)
+
+        # Proxy
+        proxy_group = QGroupBox("Proxy")
+        proxy_lay = QFormLayout(proxy_group)
+        proxy_lay.setSpacing(8)
+        self.proxy_type = QComboBox()
+        for label, val in [("None", "none"), ("HTTP", "http"),
+                           ("HTTPS", "https"), ("SOCKS5", "socks5")]:
+            self.proxy_type.addItem(label, val)
+        idx = self.proxy_type.findData(settings.proxy_type)
+        if idx >= 0:
+            self.proxy_type.setCurrentIndex(idx)
+        self.proxy_type.currentIndexChanged.connect(self._on_proxy_type_changed)
+        proxy_lay.addRow("Type", self.proxy_type)
+        self.proxy_host = QLineEdit(settings.proxy_host)
+        self.proxy_host.setPlaceholderText("proxy.example.com")
+        proxy_lay.addRow("Host", self.proxy_host)
+        self.proxy_port = QSpinBox()
+        self.proxy_port.setRange(0, 65535)
+        self.proxy_port.setSpecialValueText("Default")
+        self.proxy_port.setValue(settings.proxy_port)
+        proxy_lay.addRow("Port", self.proxy_port)
+        self.proxy_user = QLineEdit(settings.proxy_username)
+        self.proxy_user.setPlaceholderText("Optional")
+        proxy_lay.addRow("Username", self.proxy_user)
+        self.proxy_pass = QLineEdit(settings.proxy_password)
+        self.proxy_pass.setPlaceholderText("Optional")
+        self.proxy_pass.setEchoMode(QLineEdit.Password)
+        proxy_lay.addRow("Password", self.proxy_pass)
+        self.proxy_note = QLabel("Restart Cove to apply proxy changes.")
+        self.proxy_note.setProperty("role", "muted")
+        proxy_lay.addRow(self.proxy_note)
+        layout.addWidget(proxy_group)
+        self._on_proxy_type_changed()
         layout.addWidget(_make_buttons(self, ok_text="Save"))
         bb = layout.itemAt(layout.count() - 1).widget()
         bb.accepted.disconnect()
@@ -317,6 +367,13 @@ class SettingsDialog(QDialog):
         if path:
             self.dir_edit.setText(path)
 
+    def _on_proxy_type_changed(self, _index: int = 0) -> None:
+        enabled = self.proxy_type.currentData() != "none"
+        self.proxy_host.setEnabled(enabled)
+        self.proxy_port.setEnabled(enabled)
+        self.proxy_user.setEnabled(enabled)
+        self.proxy_pass.setEnabled(enabled)
+
     def _on_accept(self) -> None:
         self.settings.download_dir = self.dir_edit.text().strip() or self.settings.download_dir
         self.settings.connections_per_server = self.connections.currentData()
@@ -324,5 +381,12 @@ class SettingsDialog(QDialog):
         self.settings.overall_speed_limit_kbps = self.speed_limit.value()
         self.settings.time_format_24h = self.use_24h.isChecked()
         self.settings.auto_update_check = self.auto_update.isChecked()
+        self.settings.auto_sort_categories = self.auto_sort.isChecked()
+        self.settings.intelligent_segments = self.smart_segments.isChecked()
+        self.settings.proxy_type = self.proxy_type.currentData()
+        self.settings.proxy_host = self.proxy_host.text().strip()
+        self.settings.proxy_port = self.proxy_port.value()
+        self.settings.proxy_username = self.proxy_user.text().strip()
+        self.settings.proxy_password = self.proxy_pass.text()
         self.settings.save()
         self.accept()

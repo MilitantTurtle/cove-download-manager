@@ -534,3 +534,55 @@ class Footer(QFrame):
         self.folder_btn.setText(display)
         self.folder_btn.setToolTip(f"Open {full_path}")
         self.folder_btn.setVisible(bool(display))
+
+
+def _hex_to_bits(hexstr: str, num_pieces: int) -> list[bool]:
+    if not hexstr:
+        return [False] * num_pieces
+    try:
+        bits = bin(int(hexstr, 16))[2:].zfill(len(hexstr) * 4)
+    except ValueError:
+        return [False] * num_pieces
+    return [b == "1" for b in bits[:num_pieces]]
+
+
+class SegmentBar(QFrame):
+    """Colored block visualization of per-piece download progress."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._bitfield = ""
+        self._num_pieces = 0
+        self._segments = 0
+        self.setFixedHeight(14)
+
+    def set_data(self, bitfield: str, num_pieces: int, segments: int = 0) -> None:
+        self._bitfield = bitfield
+        self._num_pieces = num_pieces
+        self._segments = segments
+        self.update()
+
+    def paintEvent(self, _event):
+        from . import theme as _theme
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, False)
+        w = self.width()
+        h = self.height()
+        bg = QColor(_theme.SURFACE_2)
+        p.fillRect(0, 0, w, h, bg)
+        if self._num_pieces <= 0:
+            if self._segments > 0:
+                label = f"{self._segments} conn"
+                p.setPen(QColor(_theme.TEXT_FAINT))
+                p.drawText(self.rect(), Qt.AlignCenter, label)
+            p.end()
+            return
+        bits = _hex_to_bits(self._bitfield, self._num_pieces)
+        done_color = QColor(_theme.ACCENT)
+        cell_w = w / self._num_pieces
+        for i, bit in enumerate(bits):
+            if bit:
+                x = int(i * cell_w)
+                cw = max(1, int((i + 1) * cell_w) - x)
+                p.fillRect(x, 0, cw, h, done_color)
+        p.end()
