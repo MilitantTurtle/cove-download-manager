@@ -311,7 +311,11 @@ jobs:
           NOTESEOF
           sed -i "s/VERSION/${VERSION}/g" "$NOTES_FILE"
 
-          gh release create "v$VERSION" \
-            --title "v$VERSION" \
-            -F "$NOTES_FILE" \
-            release/*
+          if gh release view "v$VERSION" &>/dev/null; then
+            gh release upload "v$VERSION" release/* --clobber
+          else
+            gh release create "v$VERSION" \
+              --title "v$VERSION" \
+              -F "$NOTES_FILE" \
+              release/*
+          fi
