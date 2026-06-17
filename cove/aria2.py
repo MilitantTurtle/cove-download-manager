@@ -26,6 +26,14 @@ class Aria2Error(RuntimeError):
     pass
 
 
+# aria2 defaults max-concurrent-downloads to 5. Downloads added via the
+# browser extension go straight to aria2 (bypassing Cove's own queue), so
+# that default silently caps extension downloads at 5 and also throttles the
+# GUI queue below its configurable "up to 16 parallel". Lift it well above
+# both; downloads beyond this still queue inside aria2 but are uncommon.
+MAX_CONCURRENT_DOWNLOADS = 20
+
+
 def _bundled_aria2c() -> str | None:
     """Look for aria2c shipped alongside the running bundle.
 
@@ -107,6 +115,7 @@ class Aria2Daemon:
         args = [
             aria2c,
             "--enable-rpc",
+            f"--max-concurrent-downloads={MAX_CONCURRENT_DOWNLOADS}",
             f"--rpc-listen-port={self.settings.rpc_port}",
             f"--rpc-secret={self.settings.rpc_secret}",
             "--rpc-listen-all=false",
@@ -294,11 +303,26 @@ class Aria2RPC:
             ],
         )
 
+    _EXTERNAL_KEYS = [
+        "gid", "status", "totalLength", "completedLength", "downloadSpeed", "files",
+    ]
+
     def tell_active(self) -> list[dict]:
-        return self._call(
-            "aria2.tellActive",
-            [["gid", "status", "totalLength", "completedLength", "downloadSpeed", "files"]],
-        )
+        return self._call("aria2.tellActive", [self._EXTERNAL_KEYS])
+
+    def tell_stopped(self, offset: int = 0, num: int = 1000) -> list[dict]:
+        return self._call("aria2.tellStopped", [offset, num, self._EXTERNAL_KEYS])
+
+    def tell_external_snapshot(self) -> list[dict]:
+        """Active + recently-stopped downloads, for discovering downloads
+        added outside Cove's queue (e.g. by the browser extension).
+
+        Includes stopped/completed entries so downloads that finish faster
+        than the discovery poll interval are still picked up. Runs both RPC
+        calls on one worker thread to avoid extra concurrent use of the
+        shared HTTP session.
+        """
+        return self.tell_active() + self.tell_stopped()
 
     # ---- Global options ------------------------------------------------
 

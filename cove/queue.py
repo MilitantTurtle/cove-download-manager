@@ -126,6 +126,11 @@ class QueueManager(QObject):
         # and dropped from the DB; we keep it in self.tasks so the on_done
         # callback can still find the gid and dispatch a clean shutdown.
         self._pending_launch: dict[int, dict] = {}
+        # Every gid Cove has ever launched or adopted this session. External
+        # downloads (browser extension) are discovered by polling aria2; this
+        # guards against re-adopting one the user already cleared from the
+        # list, and against adopting Cove's own downloads as "external".
+        self._seen_gids: set[str] = set()
         self._poll = QTimer(self)
         self._poll.setInterval(500)
         self._poll.timeout.connect(self._poll_active)
@@ -161,15 +166,35 @@ class QueueManager(QObject):
             )
             self.tasks[t.id] = t
 
+    # aria2 download status -> Cove task status. "waiting" is omitted on
+    # purpose: a waiting download has a gid but isn't polled by _poll_active,
+    # so we'd never see it transition. With max-concurrent-downloads lifted,
+    # extension downloads start active rather than waiting anyway. "removed"
+    # is skipped so cleared downloads don't reappear.
+    _ARIA2_STATUS = {
+        "active": "active",
+        "paused": "paused",
+        "complete": "completed",
+        "error": "error",
+    }
+
     def _check_external(self) -> None:
-        """Pick up downloads added to aria2 externally (e.g. browser extension)."""
+        """Pick up downloads added to aria2 outside Cove's queue (e.g. the
+        browser extension), including ones that already finished."""
         known_gids = {t.gid for t in self.tasks.values() if t.gid}
 
-        def on_done(active_list):
-            for dl in active_list:
+        def on_done(snapshot):
+            for dl in snapshot:
                 gid = dl.get("gid")
-                if not gid or gid in known_gids:
+                if not gid or gid in known_gids or gid in self._seen_gids:
                     continue
+                status = self._ARIA2_STATUS.get(dl.get("status"))
+                if status is None:
+                    continue
+                # Mark seen immediately so a gid appearing in both the active
+                # and stopped lists of one snapshot is only adopted once.
+                self._seen_gids.add(gid)
+
                 files = dl.get("files") or []
                 url = ""
                 filename = None
@@ -184,26 +209,43 @@ class QueueManager(QObject):
                         p = Path(path)
                         filename = p.name
                         out_dir = str(p.parent)
+
+                def _int(v):
+                    try:
+                        return int(v)
+                    except (TypeError, ValueError):
+                        return 0
+
+                total = _int(dl.get("totalLength"))
+                completed = _int(dl.get("completedLength"))
+                speed = _int(dl.get("downloadSpeed"))
+                finished = time.time() if status in ("completed", "error") else None
+
                 with db.connect() as conn:
                     cur = conn.execute(
                         """INSERT INTO downloads
                             (url, filename, out_dir, connections,
-                             speed_limit_kbps, status, gid, created_at)
-                        VALUES (?,?,?,?,?,?,?,?)""",
+                             speed_limit_kbps, status, gid, total_bytes,
+                             completed_bytes, created_at, finished_at)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                         (url, filename, out_dir,
                          self.settings.connections_per_server, 0,
-                         "active", gid, time.time()),
+                         status, gid, total, completed, time.time(), finished),
                     )
                     tid = cur.lastrowid
                 t = DownloadTask(
                     id=tid, url=url, out_dir=out_dir,
                     connections=self.settings.connections_per_server,
-                    filename=filename, gid=gid, status="active",
+                    filename=filename, gid=gid, status=status,
+                    total_bytes=total, completed_bytes=completed,
+                    download_speed=speed, finished_at=finished,
                 )
                 self.tasks[tid] = t
                 self.task_added.emit(tid)
 
-        self._spawn(self.rpc.tell_active, on_done=on_done, on_fail=lambda *_: None)
+        self._spawn(
+            self.rpc.tell_external_snapshot, on_done=on_done, on_fail=lambda *_: None
+        )
 
     def _persist(self, t: DownloadTask) -> None:
         with db.connect() as conn:
@@ -460,7 +502,10 @@ class QueueManager(QObject):
         if slots <= 0:
             return
         ready = sorted(
-            (t for t in self.tasks.values() if t.status == "queued"),
+            # `not t.gid` guards against relaunching a task that already has
+            # an aria2 gid (e.g. an adopted external download) — doing so
+            # would start a duplicate download.
+            (t for t in self.tasks.values() if t.status == "queued" and not t.gid),
             key=lambda t: t.created_at,
         )
         for t in ready[:slots]:
@@ -476,6 +521,9 @@ class QueueManager(QObject):
         def on_done(gid: str, tid: int = t.id) -> None:
             pending = self._pending_launch.pop(tid, {})
             tt = self.tasks.get(tid)
+            # Record our own gid immediately (before any remove/pause branch)
+            # so the external-download poll never re-adopts it.
+            self._seen_gids.add(gid)
 
             # Deferred remove wins over deferred pause: the user said
             # "drop this", so do that and don't bother pausing first.
