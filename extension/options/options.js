@@ -1,3 +1,7 @@
+// Chromium exposes `chrome`, Firefox exposes `browser`. Page scripts don't
+// inherit the background shim, so define it here too.
+const browser = globalThis.browser || globalThis.chrome;
+
 const DEFAULT_EXTENSIONS = [
   ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
   ".exe", ".msi", ".dmg", ".iso", ".img",

@@ -37,7 +37,26 @@ async function loadSettings() {
   if (stored.settings) {
     settings = { ...DEFAULT_SETTINGS, ...stored.settings };
   }
+  return settings;
 }
+
+// On MV3 the service worker is torn down and this script re-runs on wake,
+// resetting `settings` to defaults. Event handlers must await this before
+// reading `settings`, or they'd act on defaults (ignoring excluded domains,
+// re-enabling a disabled extension, etc.).
+let settingsReady = loadSettings();
+
+function ensureSettings() {
+  return settingsReady;
+}
+
+// Keep the in-memory copy fresh if another context (the options page) writes.
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.settings) {
+    settings = { ...DEFAULT_SETTINGS, ...(changes.settings.newValue || {}) };
+    updateBadge();
+  }
+});
 
 async function saveSettings(newSettings) {
   settings = { ...DEFAULT_SETTINGS, ...newSettings };
@@ -68,39 +87,85 @@ function isDomainExcluded(url) {
   }
 }
 
-// Track downloads we've seen but are waiting for metadata on.
-const pendingDownloads = new Map();
-
-// Dedup guard: URLs intercepted recently (prevents re-intercept after cancel).
-const recentIntercepted = new Set();
+// Dedup guard: URLs intercepted recently (prevents re-intercept after
+// cancel). Timestamp-based + pruned on read, so it survives without a
+// setTimeout (unreliable in an MV3 service worker that may sleep).
+const DEDUP_WINDOW_MS = 5000;
+const recentIntercepted = new Map(); // url -> timestamp
 function markIntercepted(url) {
-  recentIntercepted.add(url);
-  setTimeout(() => recentIntercepted.delete(url), 5000);
+  recentIntercepted.set(url, Date.now());
+}
+function wasRecentlyIntercepted(url) {
+  const ts = recentIntercepted.get(url);
+  if (ts === undefined) return false;
+  if (Date.now() - ts > DEDUP_WINDOW_MS) {
+    recentIntercepted.delete(url);
+    return false;
+  }
+  return true;
+}
+
+// Extension of the file being downloaded, preferring the suggested filename
+// and falling back to the URL path. Returns "" when none can be determined.
+function downloadExtension(item) {
+  const name = (item.filename || item.url || "").split(/[?#]/)[0];
+  const slash = Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\"));
+  const dot = name.lastIndexOf(".");
+  if (dot === -1 || dot < slash) return "";
+  return name.substring(dot).toLowerCase();
 }
 
 browser.downloads.onCreated.addListener((downloadItem) => {
-  console.log("Cove: onCreated fired", downloadItem.url, "enabled:", settings.enabled);
+  // Don't await here; the handler kicks off async work itself.
+  handleCreated(downloadItem);
+});
+
+async function handleCreated(downloadItem) {
+  await ensureSettings();
+  const url = downloadItem.url || "";
   if (!settings.enabled) return;
-  if (downloadItem.url.startsWith("blob:") || downloadItem.url.startsWith("data:")) return;
-  if (isDomainExcluded(downloadItem.url)) return;
-  if (recentIntercepted.has(downloadItem.url)) return;
+  if (url.startsWith("blob:") || url.startsWith("data:")) return;
+  if (isDomainExcluded(url)) return;
+  if (wasRecentlyIntercepted(url)) return;
+
+  // Size filter: only when the size is known. Small files are left to the
+  // browser per the user's minimum-size setting.
+  const size = downloadItem.totalBytes;
+  if (typeof size === "number" && size > 0 && size < settings.minSizeBytes) return;
+
+  // Extension allowlist: only grab configured file types. An empty list
+  // means "intercept everything".
+  const exts = settings.interceptExtensions || [];
+  if (exts.length && !exts.includes(downloadExtension(downloadItem))) return;
 
   interceptDownload(downloadItem);
+}
+
+// Download ids we cancelled and still want erased from the browser's list.
+// The erase is driven by downloads.onChanged (below) so it doesn't depend on
+// setTimeout, which an MV3 service worker may never run if it sleeps.
+const interceptedIds = new Set();
+
+browser.downloads.onChanged.addListener((delta) => {
+  if (!interceptedIds.has(delta.id)) return;
+  const state = delta.state && delta.state.current;
+  if (state === "interrupted" || state === "complete") {
+    browser.downloads.erase({ id: delta.id }).catch(() => {});
+    interceptedIds.delete(delta.id);
+  }
 });
 
 async function interceptDownload(downloadItem) {
   markIntercepted(downloadItem.url);
 
-  // Cancel the browser download and scrub it from Firefox's download list.
+  // Cancel the browser download and scrub it from the browser's list. The
+  // cancel flips it to "interrupted", which the onChanged listener erases.
   const dlId = downloadItem.id;
+  interceptedIds.add(dlId);
   try {
     await browser.downloads.cancel(dlId);
   } catch {}
-  // Erase once Firefox registers the cancellation, then retry to be sure.
-  const eraseIt = () => browser.downloads.erase({ id: dlId }).catch(() => {});
-  eraseIt();
-  setTimeout(eraseIt, 300);
-  setTimeout(eraseIt, 1000);
+  browser.downloads.erase({ id: dlId }).catch(() => {});
 
   // Gather cookies for the download URL.
   let cookieStr = "";
@@ -200,10 +265,10 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
 
 // ---- Keyboard shortcut ----
 
-browser.commands.onCommand.addListener((command) => {
+browser.commands.onCommand.addListener(async (command) => {
   if (command === "toggle-intercept") {
-    settings.enabled = !settings.enabled;
-    saveSettings(settings);
+    await ensureSettings();  // toggle from the real value, not defaults
+    await saveSettings({ ...settings, enabled: !settings.enabled });
     updateBadge();
     showNotification(
       "Cove Interception",
@@ -241,8 +306,8 @@ function showNotification(title, message) {
 
 browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "getSettings") {
-    sendResponse(settings);
-    return;
+    ensureSettings().then(() => sendResponse(settings));
+    return true; // async: wait for settings to load before responding
   }
   if (msg.type === "saveSettings") {
     saveSettings(msg.settings).then(() => {
@@ -263,7 +328,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // ---- Init ----
 
-loadSettings().then(updateBadge);
+settingsReady.then(updateBadge);
 
 // Startup connectivity test
 sendNativeMessage({ action: "ping" }).then((r) => {

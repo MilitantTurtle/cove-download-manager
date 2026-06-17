@@ -1,3 +1,7 @@
+// Chromium exposes `chrome`, Firefox exposes `browser`. Page scripts don't
+// inherit the background shim, so define it here too.
+const browser = globalThis.browser || globalThis.chrome;
+
 const toggleBtn = document.getElementById("toggle-btn");
 const connectionStatus = document.getElementById("connection-status");
 const statusBar = document.getElementById("status-bar");
