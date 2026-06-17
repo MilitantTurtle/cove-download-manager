@@ -57,6 +57,17 @@ def apply_theme(app: QApplication, name: str) -> None:
 
 
 def run() -> int:
+    # Safety net: never open the GUI when launched as a native messaging
+    # host. A browser respawns the host on failure, so a GUI here loops into
+    # endless windows. Primary dispatch is cove.entry; this guards any direct
+    # caller of run() too.
+    from .entry import NATIVE_MESSAGING_FLAG
+
+    if NATIVE_MESSAGING_FLAG in sys.argv:
+        from .native_messaging import main as nm_main
+        nm_main()
+        return 0
+
     QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, False)
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
