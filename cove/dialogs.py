@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from .clipboard import extract_urls
-from .config import CONNECTION_CHOICES, ScheduleWindow, Settings
+from .config import CATEGORY_NAMES, CONNECTION_CHOICES, ScheduleWindow, Settings
 
 
 def _make_buttons(parent: QDialog, ok_text: str = "Save") -> QDialogButtonBox:
@@ -349,6 +349,35 @@ class SettingsDialog(QDialog):
         proxy_lay.addRow(self.proxy_note)
         layout.addWidget(proxy_group)
         self._on_proxy_type_changed()
+
+        # Category folders
+        cat_group = QGroupBox("Category folders")
+        cat_lay = QFormLayout(cat_group)
+        cat_lay.setSpacing(8)
+        self._cat_edits: dict[str, QLineEdit] = {}
+        for name in CATEGORY_NAMES:
+            current = getattr(settings.category_dirs, name, "")
+            edit = QLineEdit(current)
+            edit.setPlaceholderText(f"Use default download folder")
+            btn = QPushButton("Browse")
+            btn.clicked.connect(lambda _=False, e=edit, n=name: self._browse_category(e, n))
+            row_h = QHBoxLayout()
+            row_h.addWidget(edit, 1)
+            row_h.addWidget(btn)
+            cat_lay.addRow(name, row_h)
+            self._cat_edits[name] = edit
+        self.auto_sort = QCheckBox("Create category subfolders automatically")
+        self.auto_sort.setChecked(settings.auto_sort_by_category)
+        self.auto_sort.setToolTip(
+            "When enabled and a category folder is not set, Cove creates a "
+            "subfolder under the default download folder (e.g. Downloads/Videos)."
+        )
+        cat_lay.addRow(self.auto_sort)
+        cat_note = QLabel("Leave blank to use the default download folder.")
+        cat_note.setProperty("role", "muted")
+        cat_lay.addRow(cat_note)
+        layout.addWidget(cat_group)
+
         layout.addWidget(_make_buttons(self, ok_text="Save"))
         bb = layout.itemAt(layout.count() - 1).widget()
         bb.accepted.disconnect()
@@ -358,6 +387,12 @@ class SettingsDialog(QDialog):
         path = QFileDialog.getExistingDirectory(self, "Default download folder", self.dir_edit.text())
         if path:
             self.dir_edit.setText(path)
+
+    def _browse_category(self, edit: QLineEdit, name: str) -> None:
+        start = edit.text() or self.dir_edit.text()
+        path = QFileDialog.getExistingDirectory(self, f"{name} folder", start)
+        if path:
+            edit.setText(path)
 
     def _on_proxy_type_changed(self, _index: int = 0) -> None:
         enabled = self.proxy_type.currentData() != "none"
@@ -379,5 +414,8 @@ class SettingsDialog(QDialog):
         self.settings.proxy_port = self.proxy_port.value()
         self.settings.proxy_username = self.proxy_user.text().strip()
         self.settings.proxy_password = self.proxy_pass.text()
+        self.settings.auto_sort_by_category = self.auto_sort.isChecked()
+        for name, edit in self._cat_edits.items():
+            setattr(self.settings.category_dirs, name, edit.text().strip())
         self.settings.save()
         self.accept()

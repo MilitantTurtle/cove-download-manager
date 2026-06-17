@@ -37,6 +37,45 @@ class ScheduleWindow:
 
 CONNECTION_CHOICES = (1, 2, 4, 8, 16, 24, 32)
 
+CATEGORY_NAMES = ("Documents", "Videos", "Music", "Archives", "Programs", "Images")
+
+CATEGORY_MAP: dict[str, str] = {
+    "pdf": "Documents", "doc": "Documents", "docx": "Documents",
+    "odt": "Documents", "txt": "Documents", "md": "Documents",
+    "epub": "Documents", "xls": "Documents", "xlsx": "Documents",
+    "ppt": "Documents", "pptx": "Documents", "csv": "Documents",
+    "mp4": "Videos", "mkv": "Videos", "webm": "Videos",
+    "mov": "Videos", "avi": "Videos", "flv": "Videos", "wmv": "Videos",
+    "mp3": "Music", "flac": "Music", "wav": "Music",
+    "ogg": "Music", "m4a": "Music", "aac": "Music",
+    "zip": "Archives", "rar": "Archives", "7z": "Archives",
+    "tar": "Archives", "gz": "Archives", "bz2": "Archives",
+    "xz": "Archives",
+    "exe": "Programs", "msi": "Programs", "deb": "Programs",
+    "rpm": "Programs", "dmg": "Programs", "pkg": "Programs",
+    "appimage": "Programs",
+    "jpg": "Images", "jpeg": "Images", "png": "Images",
+    "gif": "Images", "webp": "Images", "svg": "Images",
+    "bmp": "Images", "ico": "Images", "tiff": "Images",
+}
+
+
+def categorize(url: str) -> str:
+    from urllib.parse import urlparse
+    path = urlparse(url).path
+    ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    return CATEGORY_MAP.get(ext, "Other")
+
+
+@dataclass
+class CategoryDirs:
+    Documents: str = ""
+    Videos: str = ""
+    Music: str = ""
+    Archives: str = ""
+    Programs: str = ""
+    Images: str = ""
+
 def _new_rpc_secret() -> str:
     """Per-install random token. 24 bytes ≈ 32 chars urlsafe-base64."""
     return secrets.token_urlsafe(24)
@@ -61,6 +100,8 @@ class Settings:
     proxy_username: str = ""
     proxy_password: str = ""
     intelligent_segments: bool = True
+    auto_sort_by_category: bool = False
+    category_dirs: CategoryDirs = field(default_factory=CategoryDirs)
     schedule: ScheduleWindow = field(default_factory=ScheduleWindow)
 
     @classmethod
@@ -80,8 +121,10 @@ class Settings:
             s.save()
             return s
         sched = ScheduleWindow(**raw.pop("schedule", {})) if "schedule" in raw else ScheduleWindow()
+        cat = CategoryDirs(**raw.pop("category_dirs", {})) if "category_dirs" in raw else CategoryDirs()
         s = cls(**{k: v for k, v in raw.items() if k in cls.__annotations__})
         s.schedule = sched
+        s.category_dirs = cat
         if s.theme not in ("dark", "light"):
             s.theme = "dark"
         # Migrate legacy / empty / suspiciously-short secrets up to a real one.

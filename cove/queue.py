@@ -230,20 +230,36 @@ class QueueManager(QObject):
 
     # ---- public API ---------------------------------------------------
 
+    def _resolve_category_dir(self, url: str) -> str:
+        from .config import categorize
+        from pathlib import Path
+        category = categorize(url)
+        routed = getattr(self.settings.category_dirs, category, "") or ""
+        if routed:
+            return routed
+        if self.settings.auto_sort_by_category and category != "Other":
+            return str(Path(self.settings.download_dir) / category)
+        return self.settings.download_dir
+
     def add_url(self, url: str, out_dir: str | None = None) -> Optional[int]:
         url = url.strip()
         if not URL_RE.match(url):
             return None
         import posixpath
         from urllib.parse import unquote, urlparse
-        dest_dir = out_dir or self.settings.download_dir
+        from .config import categorize
+        category = categorize(url)
+        if out_dir:
+            dest_dir = out_dir
+        else:
+            dest_dir = self._resolve_category_dir(url)
         with db.connect() as conn:
             cur = conn.execute(
                 """
                 INSERT INTO downloads
                     (url, out_dir, connections, speed_limit_kbps, status,
-                     created_at)
-                VALUES (?,?,?,?,?,?)
+                     created_at, category)
+                VALUES (?,?,?,?,?,?,?)
                 """,
                 (
                     url,
@@ -252,6 +268,7 @@ class QueueManager(QObject):
                     0,
                     "queued",
                     time.time(),
+                    category,
                 ),
             )
             tid = cur.lastrowid
@@ -341,11 +358,13 @@ class QueueManager(QObject):
             conn.execute("DELETE FROM downloads WHERE id=?", (tid,))
         if gid:
             self._spawn(self.rpc.remove, gid)
-        if delete_file and path and path.exists():
-            try:
-                path.unlink()
-            except OSError:
-                pass
+        if delete_file and path:
+            aria2_ctrl = path.with_name(path.name + ".aria2")
+            for p in (path, aria2_ctrl):
+                try:
+                    p.unlink(missing_ok=True)
+                except OSError:
+                    pass
         self.task_removed.emit(tid)
         self._maybe_start_next()
 
