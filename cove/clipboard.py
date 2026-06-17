@@ -17,7 +17,9 @@ def extract_urls(text: str) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for raw in URL_RE.findall(text):
-        url = raw.rstrip(").,;'\"")
+        # Strip trailing punctuation/markup that gets glued to a URL when it
+        # appears inside prose or brackets (e.g. "see <http://x>." or "(x)").
+        url = raw.rstrip(").,;:!?'\"]}>")
         if url not in seen:
             seen.add(url)
             out.append(url)

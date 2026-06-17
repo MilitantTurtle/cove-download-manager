@@ -398,17 +398,38 @@ class QueueManager(QObject):
         path = self._task_path(t)
         with db.connect() as conn:
             conn.execute("DELETE FROM downloads WHERE id=?", (tid,))
+
+        unlink = self._make_unlinker(path) if delete_file else None
         if gid:
-            self._spawn(self.rpc.remove, gid)
-        if delete_file and path:
-            aria2_ctrl = path.with_name(path.name + ".aria2")
-            for p in (path, aria2_ctrl):
+            # Unlink only after aria2 confirms the download is gone, otherwise
+            # it can flush/recreate the file or its .aria2 control file after
+            # we delete them, leaving orphans behind.
+            self._spawn(
+                self.rpc.remove,
+                gid,
+                on_done=(lambda *_: unlink()) if unlink else None,
+                on_fail=(lambda *_: unlink()) if unlink else None,
+            )
+        elif unlink:
+            unlink()
+
+        self.task_removed.emit(tid)
+        self._maybe_start_next()
+
+    @staticmethod
+    def _make_unlinker(path):
+        """Return a callable that deletes `path` and its `.aria2` control
+        file, ignoring missing files. No-op if path is None."""
+        def _unlink() -> None:
+            if not path:
+                return
+            ctrl = path.with_name(path.name + ".aria2")
+            for p in (path, ctrl):
                 try:
                     p.unlink(missing_ok=True)
                 except OSError:
                     pass
-        self.task_removed.emit(tid)
-        self._maybe_start_next()
+        return _unlink
 
     def resume_persisted(self) -> None:
         """Kick off any tasks restored from SQLite.
@@ -528,13 +549,20 @@ class QueueManager(QObject):
             # Deferred remove wins over deferred pause: the user said
             # "drop this", so do that and don't bother pausing first.
             if pending.get("remove"):
-                self._spawn(self.rpc.remove, gid)
+                # Best-effort file cleanup: the filename may not be known yet
+                # (set by the first status poll, which we skipped), in which
+                # case the unlinker is a no-op. Unlink only after aria2 drops
+                # the gid so it can't recreate the partial/.aria2 files.
+                path = self._task_path(tt) if tt else None
+                unlink = self._make_unlinker(path) if pending.get("delete_file") else None
+                self._spawn(
+                    self.rpc.remove,
+                    gid,
+                    on_done=(lambda *_: unlink()) if unlink else None,
+                    on_fail=(lambda *_: unlink()) if unlink else None,
+                )
                 # Pop the still-tracked task so the polling loop forgets it.
-                tt = self.tasks.pop(tid, None)
-                # We can't reliably unlink the on-disk file here because
-                # we never learned its name (filename is set by the first
-                # status poll, which we skipped by removing). The download
-                # was barely started, so the partial file is small.
+                self.tasks.pop(tid, None)
                 self._maybe_start_next()
                 return
 

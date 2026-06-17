@@ -82,7 +82,13 @@ def run() -> int:
     try:
         install_native_hosts()
     except Exception:
-        pass
+        # Non-fatal (the app still runs without the extension), but don't
+        # swallow it silently — this is the usual "extension can't connect"
+        # root cause.
+        import logging
+        logging.getLogger("cove").warning(
+            "native messaging host registration failed", exc_info=True
+        )
 
     theme.set_theme(settings.theme)
     _apply_palette(app)
