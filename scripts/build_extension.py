@@ -39,11 +39,16 @@ def _copy_shared(dest: Path) -> None:
             shutil.copy2(item, target)
 
 
-def _zip_dir(src_dir: Path, zip_path: Path) -> None:
+def _zip_dir(src_dir: Path, zip_path: Path, manifest_override: str | None = None) -> None:
     with ZipFile(zip_path, "w", ZIP_DEFLATED) as zf:
         for path in sorted(src_dir.rglob("*")):
-            if path.is_file():
-                zf.write(path, path.relative_to(src_dir))
+            if not path.is_file():
+                continue
+            rel = path.relative_to(src_dir)
+            if manifest_override is not None and rel.as_posix() == "manifest.json":
+                zf.writestr("manifest.json", manifest_override)
+            else:
+                zf.write(path, rel)
 
 
 def build() -> None:
@@ -60,8 +65,17 @@ def build() -> None:
     chrome = DIST / "chrome"
     _copy_shared(chrome)
     mv3 = json.loads((SRC / "manifest.chrome.json").read_text())
+    # Unpacked dir keeps `key` so the dev extension id is stable and matches
+    # the native host whitelist when loaded unpacked for local testing.
     (chrome / "manifest.json").write_text(json.dumps(mv3, indent=2) + "\n")
-    _zip_dir(chrome, DIST / f"cove-chrome-{mv3['version']}.zip")
+    # The Web Store upload must NOT contain `key` (Google rejects it and
+    # assigns the permanent id itself), so strip it from the zipped manifest.
+    store_manifest = {k: v for k, v in mv3.items() if k != "key"}
+    _zip_dir(
+        chrome,
+        DIST / f"cove-chrome-{mv3['version']}.zip",
+        manifest_override=json.dumps(store_manifest, indent=2) + "\n",
+    )
 
     print(f"firefox: {firefox}  (v{ff_version})")
     print(f"chrome:  {chrome}  (v{mv3['version']})")
