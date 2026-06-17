@@ -1,19 +1,11 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "Cove Download Manager",
   "version": "1.1.0",
   "description": "Intercept downloads and send them to Cove Download Manager.",
   "author": "Sin",
 
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "cove-dm@cove-download-manager.net",
-      "strict_min_version": "91.0",
-      "data_collection_permissions": {
-        "required": ["none"]
-      }
-    }
-  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz+0mIKFwWc0cSr0hBTYXtKHWWHy2IEHqwcm0GbCLK0A4YgkZN+UjhtXHy6UnBnxTk0OkDGdVtz6WWB4tdS8qfxc03Q1/NsSLrf/TfAeCBqpHbEqD5pAZTG9RMzGgOUEu4s1r6zXgvWrNm6sYKGBGLANxGTH6dAOda4eyFzkfIpbP2eB9cd5C0rjBHZqZLACPXPcC1MAf3RZ5TovXCbKJz00cpRd04NozuBdd4QAJPaG5WZe89455Jck+naHFVEI1oZCjBKQ3WZvw/T53irj8BobcwdaSb6HchoW6AhyxB4IBJloANHvDXh5tR2FE1qD5PLVOK+cIScWDF48lGgrP1QIDAQAB",
 
   "permissions": [
     "downloads",
@@ -21,16 +13,16 @@
     "contextMenus",
     "nativeMessaging",
     "notifications",
-    "storage",
-    "<all_urls>"
+    "storage"
   ],
 
+  "host_permissions": ["<all_urls>"],
+
   "background": {
-    "scripts": ["background.js"],
-    "persistent": true
+    "service_worker": "background.js"
   },
 
-  "browser_action": {
+  "action": {
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
@@ -41,8 +33,7 @@
   },
 
   "options_ui": {
-    "page": "options/options.html",
-    "browser_style": false
+    "page": "options/options.html"
   },
 
   "icons": {
@@ -51,7 +42,9 @@
     "128": "icons/icon-128.png"
   },
 
-  "content_security_policy": "script-src 'self'; object-src 'self'",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
 
   "commands": {
     "toggle-intercept": {

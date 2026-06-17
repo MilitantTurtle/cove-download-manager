@@ -30,13 +30,44 @@ import sys
 from pathlib import Path
 
 HOST_NAME = "cove_download_manager"
+
+# Firefox identifies the extension by its gecko id (allowed_extensions);
+# Chromium browsers identify it by extension id via allowed_origins.
 EXTENSION_ID = "cove-dm@cove-download-manager.net"
+
+# Chrome extension ids allowed to talk to the host. The first is the pinned
+# dev id derived from extension/chrome-key.pem. Append the Chrome Web Store
+# id here once the store item is created (see the design spec).
+_CHROME_EXTENSION_IDS = [
+    "jnemjlhecpicblbjjhbhjbbbmjhplfal",
+]
 
 # Firefox on Windows discovers native messaging hosts ONLY through this
 # registry key (the ~/.mozilla manifest directory is never consulted there).
 _WIN_REGISTRY_KEY = r"SOFTWARE\Mozilla\NativeMessagingHosts"
 
+# Chromium browsers each read their own HKCU NativeMessagingHosts key.
+_WIN_CHROMIUM_REGISTRY_KEYS = [
+    r"SOFTWARE\Google\Chrome\NativeMessagingHosts",
+    r"SOFTWARE\Microsoft\Edge\NativeMessagingHosts",
+    r"SOFTWARE\Chromium\NativeMessagingHosts",
+    r"SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts",
+    r"SOFTWARE\Vivaldi\NativeMessagingHosts",
+    r"SOFTWARE\Opera Software\NativeMessagingHosts",
+]
+
 _FORK_CONFIG_DIRS = [".librewolf", ".waterfox", ".floorp"]
+
+# Chromium browsers read manifests from ~/.config/<dir>/NativeMessagingHosts/
+# (note the camel-case dir name, unlike Firefox's native-messaging-hosts).
+_CHROMIUM_CONFIG_DIRS = [
+    "google-chrome",
+    "chromium",
+    "microsoft-edge",
+    "BraveSoftware/Brave-Browser",
+    "vivaldi",
+    "opera",
+]
 
 _KNOWN_FLATPAK_IDS = {
     "org.mozilla.firefox",
@@ -45,6 +76,13 @@ _KNOWN_FLATPAK_IDS = {
     "io.gitlab.librewolf-community",
     "net.waterfox.waterfox",
     "one.nicothin.nicothin",
+    # Chromium browsers
+    "com.google.Chrome",
+    "org.chromium.Chromium",
+    "com.microsoft.Edge",
+    "com.brave.Browser",
+    "com.vivaldi.Vivaldi",
+    "com.opera.Opera",
 }
 
 
@@ -79,7 +117,19 @@ def _manifest(wrapper_path: str) -> dict:
     }
 
 
-def _write_manifest(hosts_dir: Path, wrapper_content: str) -> None:
+def _chrome_manifest(wrapper_path: str) -> dict:
+    return {
+        "name": HOST_NAME,
+        "description": "Cove Download Manager native messaging host",
+        "path": wrapper_path,
+        "type": "stdio",
+        "allowed_origins": [
+            f"chrome-extension://{ext_id}/" for ext_id in _CHROME_EXTENSION_IDS
+        ],
+    }
+
+
+def _write_manifest(hosts_dir: Path, wrapper_content: str, manifest_fn=_manifest) -> None:
     hosts_dir.mkdir(parents=True, exist_ok=True)
 
     wrapper_path = hosts_dir / HOST_NAME
@@ -88,7 +138,7 @@ def _write_manifest(hosts_dir: Path, wrapper_content: str) -> None:
 
     manifest_path = hosts_dir / f"{HOST_NAME}.json"
     manifest_path.write_text(
-        json.dumps(_manifest(str(wrapper_path)), indent=2) + "\n"
+        json.dumps(manifest_fn(str(wrapper_path)), indent=2) + "\n"
     )
 
 
@@ -105,6 +155,21 @@ def _browser_dirs() -> list[Path]:
         if (home / name).is_dir():
             dirs.append(candidate)
 
+    return dirs
+
+
+def _chromium_browser_dirs() -> list[Path]:
+    """NativeMessagingHosts dirs for installed Chromium browsers.
+
+    Only includes a browser whose config dir already exists, so we don't
+    create stray directories for browsers that aren't installed.
+    """
+    config = Path.home() / ".config"
+    dirs: list[Path] = []
+    for name in _CHROMIUM_CONFIG_DIRS:
+        browser_dir = config / name
+        if browser_dir.is_dir():
+            dirs.append(browser_dir / "NativeMessagingHosts")
     return dirs
 
 
@@ -147,11 +212,18 @@ def _install_posix() -> list[str]:
     wrapper = _wrapper_script(parts)
     installed: list[str] = []
 
+    # Firefox-based browsers (allowed_extensions).
     for hosts_dir in _browser_dirs():
         if not hosts_dir.parent.exists():
             continue
 
         _write_manifest(hosts_dir, wrapper)
+        installed.append(str(hosts_dir))
+
+    # Chromium-based browsers (allowed_origins). Same wrapper, different
+    # manifest shape and location.
+    for hosts_dir in _chromium_browser_dirs():
+        _write_manifest(hosts_dir, wrapper, _chrome_manifest)
         installed.append(str(hosts_dir))
 
     if installed:
@@ -186,12 +258,27 @@ def _windows_launcher(parts: list[str]) -> str:
     return "@echo off\r\n" + quoted + " %*\r\n"
 
 
+def _win_set_host_key(winreg, base_key: str, manifest_path: str) -> None:
+    """Point HKCU\\<base_key>\\<host> at the given manifest path."""
+    key = winreg.CreateKeyEx(
+        winreg.HKEY_CURRENT_USER,
+        f"{base_key}\\{HOST_NAME}",
+        0,
+        winreg.KEY_WRITE,
+    )
+    try:
+        winreg.SetValueEx(key, None, 0, winreg.REG_SZ, manifest_path)
+    finally:
+        winreg.CloseKey(key)
+
+
 def _install_windows() -> list[str]:
     """Register the native messaging host on Windows.
 
-    Writes the manifest JSON + a .bat launcher under %LOCALAPPDATA%, then
-    points the HKCU Mozilla NativeMessagingHosts registry key at the
-    manifest. Returns the directory the manifest was written to.
+    Writes a .bat launcher plus a Firefox manifest (allowed_extensions) and
+    a Chrome manifest (allowed_origins) under %LOCALAPPDATA%, then points the
+    Mozilla registry key at the Firefox manifest and each Chromium browser's
+    registry key at the Chrome manifest. Returns the host directory.
     """
     import winreg
 
@@ -201,21 +288,20 @@ def _install_windows() -> list[str]:
     launcher_path = hosts_dir / f"{HOST_NAME}.bat"
     launcher_path.write_text(_windows_launcher(_windows_command_parts()))
 
-    manifest_path = hosts_dir / f"{HOST_NAME}.json"
-    manifest_path.write_text(
+    # Firefox manifest + Mozilla registry key.
+    ff_manifest = hosts_dir / f"{HOST_NAME}.json"
+    ff_manifest.write_text(
         json.dumps(_manifest(str(launcher_path)), indent=2) + "\n"
     )
+    _win_set_host_key(winreg, _WIN_REGISTRY_KEY, str(ff_manifest))
 
-    key = winreg.CreateKeyEx(
-        winreg.HKEY_CURRENT_USER,
-        f"{_WIN_REGISTRY_KEY}\\{HOST_NAME}",
-        0,
-        winreg.KEY_WRITE,
+    # Chrome manifest + per-browser Chromium registry keys.
+    chrome_manifest = hosts_dir / f"{HOST_NAME}.chrome.json"
+    chrome_manifest.write_text(
+        json.dumps(_chrome_manifest(str(launcher_path)), indent=2) + "\n"
     )
-    try:
-        winreg.SetValueEx(key, None, 0, winreg.REG_SZ, str(manifest_path))
-    finally:
-        winreg.CloseKey(key)
+    for base_key in _WIN_CHROMIUM_REGISTRY_KEYS:
+        _win_set_host_key(winreg, base_key, str(chrome_manifest))
 
     return [str(hosts_dir)]
 

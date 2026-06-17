@@ -1,5 +1,10 @@
 // extension/background.js
 
+// Cross-browser shim: Firefox exposes `browser` (promise-based); Chromium
+// exposes `chrome`. Chrome MV3 APIs used here are all promise-based, so the
+// same code runs on both.
+const browser = globalThis.browser || globalThis.chrome;
+
 const HOST_NAME = "cove_download_manager";
 
 function sendNativeMessage(msg) {
@@ -136,20 +141,25 @@ async function interceptDownload(downloadItem) {
 
 // ---- Context menu ----
 
-browser.contextMenus.create(
-  {
-    id: "download-with-cove",
-    title: "Download with Cove",
-    contexts: ["link", "image", "video", "audio"],
-  },
-  () => {
-    if (browser.runtime.lastError) {
-      console.error("Cove: context menu create error:", browser.runtime.lastError);
-    } else {
-      console.log("Cove: context menu registered");
+// Register the context menu on install/update. Doing this at top level
+// would throw "duplicate id" every time an MV3 service worker wakes, since
+// the script re-runs on each wake.
+browser.runtime.onInstalled.addListener(() => {
+  browser.contextMenus.create(
+    {
+      id: "download-with-cove",
+      title: "Download with Cove",
+      contexts: ["link", "image", "video", "audio"],
+    },
+    () => {
+      if (browser.runtime.lastError) {
+        console.error("Cove: context menu create error:", browser.runtime.lastError);
+      } else {
+        console.log("Cove: context menu registered");
+      }
     }
-  }
-);
+  );
+});
 
 browser.contextMenus.onClicked.addListener(async (info, tab) => {
   console.log("Cove: context menu clicked", info.menuItemId, info.linkUrl || info.srcUrl);
@@ -204,12 +214,15 @@ browser.commands.onCommand.addListener((command) => {
 
 // ---- Badge ----
 
+// MV3 renamed browserAction -> action; fall back for MV2 Firefox.
+const browserAction = browser.action || browser.browserAction;
+
 function updateBadge() {
   if (!settings.enabled) {
-    browser.browserAction.setBadgeText({ text: "OFF" });
-    browser.browserAction.setBadgeBackgroundColor({ color: "#6b6b80" });
+    browserAction.setBadgeText({ text: "OFF" });
+    browserAction.setBadgeBackgroundColor({ color: "#6b6b80" });
   } else {
-    browser.browserAction.setBadgeText({ text: "" });
+    browserAction.setBadgeText({ text: "" });
   }
 }
 

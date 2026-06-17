@@ -95,16 +95,28 @@ verifies this digest before swapping any binary.
 
 ## Browser Extension
 
-Install the [Cove Download Manager extension](https://addons.mozilla.org/en-US/firefox/addon/cove-download-manager/)
-from Firefox Add-ons. It works with Firefox, Zen, LibreWolf, Waterfox,
-Floorp, and other Firefox-based browsers.
+**Firefox:** install the [Cove Download Manager extension](https://addons.mozilla.org/en-US/firefox/addon/cove-download-manager/)
+from Firefox Add-ons. Works with Firefox, Zen, LibreWolf, Waterfox, Floorp,
+and other Firefox-based browsers.
+
+**Chrome / Chromium:** install from the Chrome Web Store (link pending
+publication). Works with Chrome, Edge, Brave, Vivaldi, Opera, and Chromium.
 
 ### How it works
 
-1. Install the extension from the link above.
+1. Install the extension for your browser.
 2. Launch Cove at least once so the native messaging host is registered.
 3. Open the extension's settings page and click **Test Connection to Cove**
    to confirm the link is active.
+
+### Building the extension
+
+`python scripts/build_extension.py` produces `dist/firefox/` and
+`dist/chrome/` (plus zips). Firefox uses Manifest V2; Chrome uses Manifest V3
+with a pinned key so the extension id is stable. The Chrome id is whitelisted
+in the native host's `allowed_origins`. After the Web Store assigns the
+published id, add it to `_CHROME_EXTENSION_IDS` in
+`cove/native_host_install.py` and ship a new build.
 
 Once connected, the extension intercepts downloads matching your configured
 file types and minimum size, then sends them to Cove with cookies, referrer,

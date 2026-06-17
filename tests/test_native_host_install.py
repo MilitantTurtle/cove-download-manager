@@ -1,11 +1,12 @@
 """Tests for native messaging host registration across platforms.
 
-Focuses on the Windows path (registry + .bat launcher), which has no
-equivalent to the POSIX manifest-directory discovery and so must register
-the host through HKCU\\SOFTWARE\\Mozilla\\NativeMessagingHosts.
+Covers the Windows path (registry + .bat launcher) and the Chromium
+registration (allowed_origins manifest + per-browser registry keys / config
+dirs), which differ from the Firefox path (allowed_extensions).
 """
 import json
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from cove import native_host_install as nhi
@@ -41,9 +42,21 @@ def test_manifest_fields():
     assert m["type"] == "stdio"
     assert m["path"] == r"C:\hosts\cove_download_manager.bat"
     assert nhi.EXTENSION_ID in m["allowed_extensions"]
+    assert "allowed_origins" not in m
 
 
-def test_install_windows_writes_manifest_launcher_and_registry(tmp_path, monkeypatch):
+def test_chrome_manifest_fields():
+    m = nhi._chrome_manifest(r"C:\hosts\cove_download_manager.bat")
+    assert m["name"] == nhi.HOST_NAME
+    assert m["type"] == "stdio"
+    assert m["path"] == r"C:\hosts\cove_download_manager.bat"
+    # Chromium uses allowed_origins with chrome-extension:// URLs, not ids.
+    assert "allowed_extensions" not in m
+    for ext_id in nhi._CHROME_EXTENSION_IDS:
+        assert f"chrome-extension://{ext_id}/" in m["allowed_origins"]
+
+
+def test_install_windows_writes_both_manifests_and_all_keys(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     fake_winreg = MagicMock()
     fake_winreg.HKEY_CURRENT_USER = 0
@@ -55,25 +68,59 @@ def test_install_windows_writes_manifest_launcher_and_registry(tmp_path, monkeyp
         installed = nhi._install_windows()
 
     hosts_dir = tmp_path / "Cove" / "native-messaging-hosts"
-    manifest = hosts_dir / "cove_download_manager.json"
+    ff_manifest = hosts_dir / "cove_download_manager.json"
+    chrome_manifest = hosts_dir / "cove_download_manager.chrome.json"
     launcher = hosts_dir / "cove_download_manager.bat"
 
-    assert manifest.is_file()
+    assert ff_manifest.is_file()
+    assert chrome_manifest.is_file()
     assert launcher.is_file()
     assert str(hosts_dir) in installed
 
-    data = json.loads(manifest.read_text())
-    assert data["path"] == str(launcher)
+    # Firefox manifest -> allowed_extensions; Chrome manifest -> allowed_origins.
+    assert "allowed_extensions" in json.loads(ff_manifest.read_text())
+    assert "allowed_origins" in json.loads(chrome_manifest.read_text())
 
-    # The launcher must invoke the frozen exe with the native-messaging flag.
     bat = launcher.read_text()
     assert "cove-download-manager.exe" in bat
     assert "--native-messaging" in bat
 
-    # Registry: per-host key created, default value points at the manifest.
-    fake_winreg.CreateKeyEx.assert_called_once()
-    set_args = fake_winreg.SetValueEx.call_args[0]
-    assert set_args[-1] == str(manifest)
+    # Every registered key: Mozilla + each Chromium browser.
+    created = [c.args[1] for c in fake_winreg.CreateKeyEx.call_args_list]
+    expected = [f"{nhi._WIN_REGISTRY_KEY}\\{nhi.HOST_NAME}"] + [
+        f"{k}\\{nhi.HOST_NAME}" for k in nhi._WIN_CHROMIUM_REGISTRY_KEYS
+    ]
+    assert created == expected
+
+    # Mozilla key -> firefox manifest; chromium keys -> chrome manifest.
+    set_values = [c.args[-1] for c in fake_winreg.SetValueEx.call_args_list]
+    assert set_values[0] == str(ff_manifest)
+    assert set_values[1:] == [str(chrome_manifest)] * len(
+        nhi._WIN_CHROMIUM_REGISTRY_KEYS
+    )
+
+
+def test_install_posix_writes_chromium_manifests(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    # Simulate Chrome + Brave installed (config dirs exist), Firefox absent.
+    (tmp_path / ".config" / "google-chrome").mkdir(parents=True)
+    (tmp_path / ".config" / "BraveSoftware" / "Brave-Browser").mkdir(parents=True)
+
+    installed = nhi._install_posix()
+
+    chrome_dir = tmp_path / ".config" / "google-chrome" / "NativeMessagingHosts"
+    brave_dir = (
+        tmp_path / ".config" / "BraveSoftware" / "Brave-Browser"
+        / "NativeMessagingHosts"
+    )
+    for d in (chrome_dir, brave_dir):
+        manifest = d / "cove_download_manager.json"
+        assert manifest.is_file()
+        assert "allowed_origins" in json.loads(manifest.read_text())
+        assert str(d) in installed
+
+    # Firefox dir not created because ~/.mozilla doesn't exist.
+    assert not (tmp_path / ".mozilla").exists()
 
 
 def test_install_dispatch_windows(monkeypatch):
