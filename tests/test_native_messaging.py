@@ -4,12 +4,33 @@ import json
 import struct
 from unittest.mock import MagicMock, patch
 
+from cove import native_messaging as nm
 from cove.native_messaging import (
     encode_message,
     decode_message,
     validate_url,
     handle_message,
 )
+
+
+def test_binary_stdio_uses_existing_buffers():
+    """When std streams exist (console/dev), reuse their binary buffers."""
+    fake_in = io.BytesIO(b"")
+    fake_out = io.BytesIO()
+
+    class _Stream:
+        pass
+
+    sin = _Stream()
+    sin.buffer = fake_in
+    sout = _Stream()
+    sout.buffer = fake_out
+
+    with patch.object(nm.sys, "stdin", sin), patch.object(nm.sys, "stdout", sout):
+        in_stream, out_stream = nm._binary_stdio()
+
+    assert in_stream is fake_in
+    assert out_stream is fake_out
 
 
 def test_encode_message():

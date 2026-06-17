@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import struct
 import sys
 from typing import Any
@@ -104,6 +105,35 @@ def handle_message(
     return {"status": "error", "message": f"Unknown action: {action!r}"}
 
 
+def _binary_stdio() -> tuple[io.BufferedReader, io.BufferedWriter]:
+    """Return binary (stdin, stdout) streams for the native messaging pipe.
+
+    A console/dev launch exposes ``sys.stdin.buffer`` directly. But the
+    packaged Windows app is a GUI-subsystem (``--windowed``) build, where
+    ``sys.stdin``/``sys.stdout`` are ``None`` even though Firefox passed
+    real pipe handles. In that case reconstruct binary streams from the
+    inherited OS std handles, otherwise the protocol can't be read at all.
+    """
+    stdin = getattr(sys.stdin, "buffer", None)
+    stdout = getattr(sys.stdout, "buffer", None)
+    if stdin is not None and stdout is not None:
+        return stdin, stdout
+
+    if sys.platform == "win32":
+        import msvcrt
+        from ctypes import windll
+
+        STD_INPUT_HANDLE = -10
+        STD_OUTPUT_HANDLE = -11
+        h_in = windll.kernel32.GetStdHandle(STD_INPUT_HANDLE)
+        h_out = windll.kernel32.GetStdHandle(STD_OUTPUT_HANDLE)
+        fd_in = msvcrt.open_osfhandle(h_in, os.O_RDONLY | os.O_BINARY)
+        fd_out = msvcrt.open_osfhandle(h_out, os.O_WRONLY | os.O_BINARY)
+        return os.fdopen(fd_in, "rb"), os.fdopen(fd_out, "wb")
+
+    return os.fdopen(0, "rb"), os.fdopen(1, "wb")
+
+
 def main() -> None:
     try:
         settings = Settings.load()
@@ -112,8 +142,7 @@ def main() -> None:
         settings = None
         rpc = None
 
-    stdin = sys.stdin.buffer
-    stdout = sys.stdout.buffer
+    stdin, stdout = _binary_stdio()
 
     while True:
         msg = decode_message(stdin)
