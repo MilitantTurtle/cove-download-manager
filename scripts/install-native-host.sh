@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install the native messaging host manifest for Firefox-based browsers.
-# Supports: Firefox, Zen, LibreWolf, Waterfox, Floorp.
+# Supports native and Flatpak installs of Firefox, Zen, LibreWolf, Waterfox, Floorp.
 # Usage: ./scripts/install-native-host.sh [extension-id]
 
 set -euo pipefail
@@ -22,13 +22,26 @@ if ! "$PYTHON" -c "import cove.native_messaging" 2>/dev/null; then
     exit 1
 fi
 
-BROWSER_DIRS=(
-    "$HOME/.mozilla/native-messaging-hosts"
-    "$HOME/.zen/native-messaging-hosts"
-    "$HOME/.librewolf/native-messaging-hosts"
-    "$HOME/.waterfox/native-messaging-hosts"
-    "$HOME/.floorp/native-messaging-hosts"
-)
+BROWSER_CONFIGS=(.mozilla .zen .librewolf .waterfox .floorp)
+
+BROWSER_DIRS=()
+for cfg in "${BROWSER_CONFIGS[@]}"; do
+    BROWSER_DIRS+=("$HOME/$cfg/native-messaging-hosts")
+done
+
+# Flatpak browsers sandbox the home directory, so their config lives
+# under ~/.var/app/<app-id>/<config>/. Scan for any installed Flatpak
+# browser that has a known config dir.
+if [ -d "$HOME/.var/app" ]; then
+    for app_dir in "$HOME/.var/app"/*/; do
+        [ -d "$app_dir" ] || continue
+        for cfg in "${BROWSER_CONFIGS[@]}"; do
+            if [ -d "${app_dir}${cfg}" ]; then
+                BROWSER_DIRS+=("${app_dir}${cfg}/native-messaging-hosts")
+            fi
+        done
+    done
+fi
 
 installed=0
 for MANIFEST_DIR in "${BROWSER_DIRS[@]}"; do

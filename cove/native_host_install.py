@@ -4,7 +4,8 @@ Called once on app startup. Writes (or refreshes) the JSON manifest and
 wrapper script into each browser's native-messaging-hosts directory so the
 Cove extension can connect without manual setup.
 
-Supports: Firefox, Zen, LibreWolf, Waterfox, Floorp.
+Supports native and Flatpak installs of Firefox, Zen, LibreWolf, Waterfox,
+and Floorp.
 """
 from __future__ import annotations
 
@@ -17,21 +18,42 @@ from pathlib import Path
 HOST_NAME = "cove_download_manager"
 EXTENSION_ID = "cove-dm@cove-download-manager.net"
 
-_BROWSER_DIRS = [
-    Path.home() / ".mozilla" / "native-messaging-hosts",
-    Path.home() / ".zen" / "native-messaging-hosts",
-    Path.home() / ".librewolf" / "native-messaging-hosts",
-    Path.home() / ".waterfox" / "native-messaging-hosts",
-    Path.home() / ".floorp" / "native-messaging-hosts",
-]
+_BROWSER_CONFIG_NAMES = [".mozilla", ".zen", ".librewolf", ".waterfox", ".floorp"]
+
+
+def _browser_dirs() -> list[Path]:
+    """Collect every native-messaging-hosts dir that should get a manifest.
+
+    Covers two cases:
+    1. Native installs: ~/.mozilla/native-messaging-hosts, ~/.zen/..., etc.
+    2. Flatpak installs: ~/.var/app/<app-id>/.mozilla/..., etc.
+       Flatpak sandboxes the home directory, so a Flatpak Zen browser sees
+       ~/.var/app/<id>/.zen/ instead of ~/.zen/.  We scan ~/.var/app/*/
+       for any of the known browser config dirs.
+    """
+    home = Path.home()
+    dirs: list[Path] = []
+
+    for name in _BROWSER_CONFIG_NAMES:
+        dirs.append(home / name / "native-messaging-hosts")
+
+    flatpak_root = home / ".var" / "app"
+    if flatpak_root.is_dir():
+        try:
+            for app_dir in flatpak_root.iterdir():
+                if not app_dir.is_dir():
+                    continue
+                for name in _BROWSER_CONFIG_NAMES:
+                    candidate = app_dir / name / "native-messaging-hosts"
+                    if (app_dir / name).is_dir():
+                        dirs.append(candidate)
+        except OSError:
+            pass
+
+    return dirs
 
 
 def _wrapper_command() -> str:
-    """Build the shell command that launches the native messaging host.
-
-    - AppImage: use $APPIMAGE directly with --native-messaging flag
-    - pip / venv: use the current Python interpreter
-    """
     appimage = os.environ.get("APPIMAGE")
     if appimage:
         return f'exec "{appimage}" --native-messaging'
@@ -58,7 +80,7 @@ def install_native_hosts() -> list[str]:
     command = _wrapper_command()
     installed: list[str] = []
 
-    for hosts_dir in _BROWSER_DIRS:
+    for hosts_dir in _browser_dirs():
         if not hosts_dir.parent.exists():
             continue
 
