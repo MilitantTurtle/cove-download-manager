@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -45,26 +46,29 @@ class UpdateInfo:
     checksum_name: str | None = None
 
 
-def _parse_version(v: str) -> tuple[int, int, int]:
-    v = v.strip().lstrip("vV")
-    out: list[int] = []
-    for part in v.split("."):
-        digits = ""
-        for ch in part:
-            if ch.isdigit():
-                digits += ch
-            else:
-                break
-        out.append(int(digits) if digits else 0)
-        if len(out) == 3:
-            break
-    while len(out) < 3:
-        out.append(0)
-    return (out[0], out[1], out[2])
+_VERSION_RE = re.compile(r"^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+](.+))?$", re.I)
+
+
+def _version_key(v: str) -> tuple[int, int, int, int, str]:
+    """Comparable key for a version string.
+
+    Handles pre-release/build suffixes: a plain release (no suffix) sorts
+    ABOVE any pre-release of the same x.y.z (semver: 1.5.0 > 1.5.0-rc1), and
+    extra components beyond patch are ignored for ordering. The 4th element
+    is the release flag (1 = release, 0 = pre-release).
+    """
+    m = _VERSION_RE.match((v or "").strip())
+    if not m:
+        return (0, 0, 0, 1, "")
+    major = int(m.group(1) or 0)
+    minor = int(m.group(2) or 0)
+    patch = int(m.group(3) or 0)
+    pre = m.group(4) or ""
+    return (major, minor, patch, 1 if pre == "" else 0, pre)
 
 
 def version_newer(latest: str, current: str) -> bool:
-    return _parse_version(latest) > _parse_version(current)
+    return _version_key(latest) > _version_key(current)
 
 
 def bundle_kind() -> str:

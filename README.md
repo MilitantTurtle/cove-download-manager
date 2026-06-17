@@ -141,12 +141,16 @@ and user-agent headers so authenticated downloads work seamlessly.
 
 | What | Where (Linux) | Where (Windows) |
 |---|---|---|
-| Settings | `~/.config/cove/settings.json` | `%APPDATA%\cove\settings.json` |
-| Queue DB | `~/.local/share/cove/cove.db` | `%LOCALAPPDATA%\cove\cove.db` |
-| aria2 session / log | `~/.local/share/cove/aria2.{session,log}` | `%LOCALAPPDATA%\cove\aria2.{session,log}` |
+| Settings | `~/.config/cove/settings.json` | `%USERPROFILE%\.config\cove\settings.json` |
+| Queue DB | `~/.local/share/cove/cove.db` | `%USERPROFILE%\.local\share\cove\cove.db` |
+| aria2 session / log | `~/.local/share/cove/aria2.{session,log}` | `%USERPROFILE%\.local\share\cove\aria2.{session,log}` |
 
-Settings include a per-install random RPC token; the file is written with
-`0600` permissions on POSIX so other local users can't read it.
+Portable builds keep everything in a `cove-app-data` folder next to the
+executable instead.
+
+Settings include a per-install random RPC token; on POSIX the file is written
+with `0600` permissions so other local users can't read it (on Windows the
+file inherits the user profile's ACL).
 
 ---
 

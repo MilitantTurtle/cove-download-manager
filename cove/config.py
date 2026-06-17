@@ -138,7 +138,9 @@ class Settings:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         data = asdict(self)
         # Write atomically with restrictive perms so the RPC secret isn't
-        # readable by other local users.
+        # readable by other local users. NOTE: chmod 0o600 only restricts
+        # access on POSIX; on Windows it's effectively a no-op and the file
+        # inherits the parent directory's ACL.
         tmp = CONFIG_FILE.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=2))
         try:
