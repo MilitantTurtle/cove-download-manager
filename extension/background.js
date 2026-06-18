@@ -412,6 +412,13 @@ if (browser.webRequest) {
       }
       const streams = detectedStreams.get(tabId);
       if (streams.some((s) => s.url === details.url)) return;
+      // Keep only the first M3U8 per hostname. HLS quality variants come
+      // from the same CDN, so this filters them out while preserving
+      // genuinely different streams from different sources.
+      try {
+        const host = new URL(details.url).hostname;
+        if (streams.some((s) => new URL(s.url).hostname === host)) return;
+      } catch {}
       streams.push({
         url: details.url,
         type: "m3u8",

@@ -109,6 +109,17 @@ def handle_message(
         out_dir = msg.get("directory") or settings.download_dir
         filename = msg.get("filename") or None
 
+        from .hls import is_hls_url
+        if is_hls_url(url):
+            import json as _json
+            from .config import DATA_DIR
+            drop_dir = DATA_DIR / "drop"
+            drop_dir.mkdir(parents=True, exist_ok=True)
+            import time as _time
+            drop_file = drop_dir / f"hls-{int(_time.time() * 1000)}.json"
+            drop_file.write_text(_json.dumps({"url": url, "filename": filename}))
+            return {"status": "ok", "message": "HLS download queued in Cove"}
+
         try:
             gid = rpc.add_uri(
                 [url],

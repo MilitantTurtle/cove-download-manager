@@ -107,28 +107,21 @@ class BrandBadge(QLabel):
                 self._src = pm
 
     def paintEvent(self, _event):
-        from .theme import BORDER_HEX_STRONG, SURFACE
-
+        if self._src is None:
+            return
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         p.setRenderHint(QPainter.SmoothPixmapTransform, True)
-        p.setPen(QPen(QColor(BORDER_HEX_STRONG), 1))
-        p.setBrush(QColor(SURFACE))
-        r = self.rect().adjusted(0, 0, -1, -1)
-        p.drawRoundedRect(r, 6, 6)
-        if self._src is not None:
-            dpr = max(1.0, float(self.devicePixelRatioF()))
-            side = self.width() - 6
-            target = self._src.scaled(
-                int(side * dpr),
-                int(side * dpr),
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation,
-            )
-            target.setDevicePixelRatio(dpr)
-            x = (self.width() - side) // 2
-            y = (self.height() - side) // 2
-            p.drawPixmap(x, y, side, side, target)
+        dpr = max(1.0, float(self.devicePixelRatioF()))
+        side = self.width()
+        target = self._src.scaled(
+            int(side * dpr),
+            int(side * dpr),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        target.setDevicePixelRatio(dpr)
+        p.drawPixmap(0, 0, side, side, target)
         p.end()
 
 
@@ -265,8 +258,10 @@ class Titlebar(QFrame):
         lay.setContentsMargins(12, 0, 6, 0)
         lay.setSpacing(10)
 
-        self.badge = BrandBadge(22)
+        self.badge = BrandBadge(26)
         lay.addWidget(self.badge, 0, Qt.AlignVCenter)
+
+        lay.addStretch(1)
 
         primary = QLabel(app_name)
         primary.setObjectName("titlebarTitle")

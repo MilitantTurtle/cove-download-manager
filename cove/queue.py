@@ -144,6 +144,10 @@ class QueueManager(QObject):
         self._ext_poll.setInterval(2000)
         self._ext_poll.timeout.connect(self._check_external)
         self._ext_poll.start()
+        self._drop_poll = QTimer(self)
+        self._drop_poll.setInterval(1000)
+        self._drop_poll.timeout.connect(self._check_drop_dir)
+        self._drop_poll.start()
         db.init()
         self._load_persisted()
 
@@ -183,6 +187,25 @@ class QueueManager(QObject):
         "complete": "completed",
         "error": "error",
     }
+
+    def _check_drop_dir(self) -> None:
+        """Pick up HLS downloads queued by the native messaging process."""
+        from .config import DATA_DIR
+        drop_dir = DATA_DIR / "drop"
+        if not drop_dir.is_dir():
+            return
+        import json as _json
+        for f in sorted(drop_dir.iterdir()):
+            if not f.name.endswith(".json"):
+                continue
+            try:
+                data = _json.loads(f.read_text())
+                f.unlink()
+                url = data.get("url", "")
+                if url:
+                    self.add_url(url)
+            except Exception:
+                f.unlink(missing_ok=True)
 
     def _check_external(self) -> None:
         """Pick up downloads added to aria2 outside Cove's queue (e.g. the
