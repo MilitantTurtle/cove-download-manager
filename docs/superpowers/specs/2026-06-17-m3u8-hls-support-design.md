@@ -124,6 +124,37 @@ HLS downloads auto-categorize as "Videos" since output is always mp4.
 Add `backend TEXT DEFAULT 'aria2'` column to the downloads table. Migration
 uses the existing ALTER TABLE + try/except pattern for idempotency.
 
+### Extension: Media Stream Detection (Firefox only)
+
+The Firefox extension uses the webRequest API to detect HLS streams on
+pages the user visits, then lets them send detected URLs to Cove.
+
+**Detection:** `webRequest.onHeadersReceived` listener watches all network
+responses. A match fires on any of:
+- Content-Type: `application/vnd.apple.mpegurl` or `application/x-mpegURL`
+- Content-Type: `video/mp2t` (TS segments - extract the referrer M3U8)
+- URL path ends in `.m3u8`
+
+**Storage:** Detected streams stored per-tab in memory as
+`tabId -> [{url, type, timestamp}]`. Cleared on tab navigation
+(`webNavigation.onBeforeNavigate`) or tab close (`tabs.onRemoved`).
+
+**Badge:** Extension icon shows a numeric badge with the count of detected
+streams on the active tab. Badge clears when the tab navigates or closes.
+
+**Popup UI:** The existing popup gains a "Detected Streams" section visible
+when streams are found on the current tab. Each entry shows the truncated
+URL and a "Download" button. Clicking "Download" sends the URL to Cove via
+the existing native messaging `add_download` message. Same flow as regular
+intercepted downloads from there.
+
+**Permissions:** Add `webRequest` to `manifest.json` permissions. Firefox
+MV2 supports this fully. No `webRequestBlocking` needed (observe only).
+
+**Scope:** Firefox only. Chrome uses MV3 which has a different, more
+limited webRequest model (`declarativeNetRequest`). Chrome support deferred
+until the Chrome extension clears review.
+
 ### Files Changed
 
 - `cove/queue.py` - URL detection, `_launch_hls()`, ffmpeg progress
@@ -133,11 +164,18 @@ uses the existing ALTER TABLE + try/except pattern for idempotency.
   column display
 - `cove/config.py` - Add "Videos" to category if not present (for
   auto-categorization)
+- `extension/manifest.json` - Add `webRequest` permission
+- `extension/background.js` - webRequest listener, per-tab stream storage,
+  badge updates
+- `extension/popup/popup.html` - Detected streams section
+- `extension/popup/popup.js` - Stream list rendering, download button
+  handler
 
 ### Not In Scope
 
-- Browser extension auto-detection of M3U8 streams (webRequest API)
+- Chrome extension stream detection (MV3 declarativeNetRequest)
 - Quality selection UI
 - MKV output format option
 - yt-dlp integration
 - Subtitle track extraction
+- In-page "Download This Video" overlay button
