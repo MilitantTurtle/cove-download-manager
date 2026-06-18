@@ -43,6 +43,7 @@ class DownloadTask:
     bitfield: str = ""
     num_pieces: int = 0
     last_status_at: float = 0.0
+    backend: str = "aria2"
 
     @property
     def progress(self) -> float:
@@ -163,6 +164,7 @@ class QueueManager(QObject):
                 completed_bytes=row["completed_bytes"],
                 created_at=row["created_at"],
                 segments=row["segments"],
+                backend=row.get("backend", "aria2"),
             )
             self.tasks[t.id] = t
 
@@ -290,7 +292,19 @@ class QueueManager(QObject):
         import posixpath
         from urllib.parse import unquote, urlparse
         from .config import categorize
-        category = categorize(url)
+        from .hls import is_hls_url
+        backend = "ffmpeg" if is_hls_url(url) else "aria2"
+        if backend == "ffmpeg":
+            import shutil
+            if not shutil.which("ffmpeg"):
+                self.error.emit("ffmpeg is required for HLS/M3U8 downloads")
+                return None
+            path_part = urlparse(url).path.rsplit("/", 1)[-1]
+            filename = (path_part.rsplit(".", 1)[0] if "." in path_part else "stream") + ".mp4"
+            category = "Videos"
+        else:
+            category = categorize(url)
+            filename = None
         if out_dir:
             dest_dir = out_dir
         else:
@@ -300,8 +314,8 @@ class QueueManager(QObject):
                 """
                 INSERT INTO downloads
                     (url, out_dir, connections, speed_limit_kbps, status,
-                     created_at, category)
-                VALUES (?,?,?,?,?,?,?)
+                     created_at, category, backend, filename)
+                VALUES (?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     url,
@@ -311,6 +325,8 @@ class QueueManager(QObject):
                     "queued",
                     time.time(),
                     category,
+                    backend,
+                    filename,
                 ),
             )
             tid = cur.lastrowid
@@ -319,6 +335,8 @@ class QueueManager(QObject):
             url=url,
             out_dir=dest_dir,
             connections=self.settings.connections_per_server,
+            backend=backend,
+            filename=filename if backend == "ffmpeg" else None,
         )
         self.tasks[tid] = t
         self.task_added.emit(tid)

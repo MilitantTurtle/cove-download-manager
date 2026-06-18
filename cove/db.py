@@ -32,6 +32,10 @@ _MIGRATIONS = [
         "ALTER TABLE downloads ADD COLUMN category TEXT NOT NULL DEFAULT 'Other'",
         "ALTER TABLE downloads ADD COLUMN segments INTEGER NOT NULL DEFAULT 0",
     ],
+    # v1 -> v2: add backend column for HLS support
+    [
+        "ALTER TABLE downloads ADD COLUMN backend TEXT DEFAULT 'aria2'",
+    ],
 ]
 
 
