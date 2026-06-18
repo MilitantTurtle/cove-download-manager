@@ -9,12 +9,13 @@ fan out to background QThreadPool workers; results come back via signals.
 """
 from __future__ import annotations
 
+import os
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QObject, QProcess, QRunnable, QThreadPool, QTimer, Signal
 
 from . import db
 from .aria2 import Aria2Error, Aria2RPC
@@ -132,6 +133,9 @@ class QueueManager(QObject):
         # guards against re-adopting one the user already cleared from the
         # list, and against adopting Cove's own downloads as "external".
         self._seen_gids: set[str] = set()
+        self._hls_procs: dict[int, QProcess] = {}
+        self._hls_duration: dict[int, float] = {}
+        self._hls_stderr: dict[int, str] = {}
         self._poll = QTimer(self)
         self._poll.setInterval(500)
         self._poll.timeout.connect(self._poll_active)
@@ -292,7 +296,7 @@ class QueueManager(QObject):
         import posixpath
         from urllib.parse import unquote, urlparse
         from .config import categorize
-        from .hls import is_hls_url
+        from .hls import ffmpeg_command, is_hls_url, parse_ffmpeg_progress
         backend = "ffmpeg" if is_hls_url(url) else "aria2"
         if backend == "ffmpeg":
             import shutil
@@ -411,6 +415,12 @@ class QueueManager(QObject):
 
         # Normal path: drop from local state, ask aria2 to forget the gid
         # if it had one, optionally unlink the file on disk.
+        if tid in self._hls_procs:
+            proc = self._hls_procs.pop(tid)
+            self._hls_duration.pop(tid, None)
+            self._hls_stderr.pop(tid, None)
+            if proc.state() != QProcess.NotRunning:
+                proc.terminate()
         self.tasks.pop(tid, None)
         gid = t.gid
         path = self._task_path(t)
@@ -489,6 +499,12 @@ class QueueManager(QObject):
         self._running = False
         self.queue_running_changed.emit(False)
         self._auto_paused = {t.id for t in self.tasks.values() if t.status == "active"}
+        for proc in list(self._hls_procs.values()):
+            if proc.state() != QProcess.NotRunning:
+                proc.terminate()
+        self._hls_procs.clear()
+        self._hls_duration.clear()
+        self._hls_stderr.clear()
         self._spawn(self.rpc.pause_all, on_done=lambda _: self._mark_all_active_paused())
 
     def set_overall_speed_limit(self, kbps: int) -> None:
@@ -557,11 +573,61 @@ class QueueManager(QObject):
         for t in ready[:slots]:
             self._launch(t)
 
+    def _launch_hls(self, t: DownloadTask) -> None:
+        from .hls import ffmpeg_command, parse_ffmpeg_progress
+        output_path = os.path.join(t.out_dir, t.filename or "stream.mp4")
+        cmd = ffmpeg_command(t.url, output_path)
+
+        proc = QProcess(self)
+        proc.setProcessChannelMode(QProcess.MergedChannels)
+        self._hls_procs[t.id] = proc
+        self._hls_duration[t.id] = 0.0
+        self._hls_stderr[t.id] = ""
+
+        def on_read():
+            data = proc.readAllStandardOutput().data().decode("utf-8", errors="replace")
+            self._hls_stderr[t.id] = data
+            for line in data.splitlines():
+                info = parse_ffmpeg_progress(line, self._hls_duration.get(t.id, 0.0))
+                if "duration_secs" in info:
+                    self._hls_duration[t.id] = info["duration_secs"]
+                if "time_secs" in info:
+                    t.completed_bytes = int(info["time_secs"])
+                    t.download_speed = 0
+                    t.error = info.get("speed", "")
+                    dur = self._hls_duration.get(t.id, 0.0)
+                    if dur > 0:
+                        t.total_bytes = int(dur)
+                    self.task_changed.emit(t.id)
+
+        def on_finished(exit_code, _exit_status):
+            self._hls_procs.pop(t.id, None)
+            self._hls_duration.pop(t.id, None)
+            stderr = self._hls_stderr.pop(t.id, "")
+            if exit_code == 0:
+                t.status = "completed"
+                t.finished_at = time.time()
+                t.error = None
+            else:
+                t.status = "error"
+                last_lines = "\n".join(stderr.splitlines()[-5:])
+                t.error = last_lines or f"ffmpeg exited with code {exit_code}"
+            self._persist(t)
+            self.task_changed.emit(t.id)
+            self._maybe_start_next()
+
+        proc.readyReadStandardOutput.connect(on_read)
+        proc.finished.connect(on_finished)
+        proc.start(cmd[0], cmd[1:])
+
     def _launch(self, t: DownloadTask) -> None:
         t.status = "active"
         t.error = None
         self._persist(t)
         self.task_changed.emit(t.id)
+        if t.backend == "ffmpeg":
+            self._launch_hls(t)
+            return
         self._pending_launch[t.id] = {}
 
         def on_done(gid: str, tid: int = t.id) -> None:
