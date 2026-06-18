@@ -285,11 +285,13 @@ jobs:
           find artifacts -type f -exec cp -v {} release/ \;
           ls -la release/
 
-      - name: Generate checksums bundle
+      - name: Generate SHA256 sidecars
         run: |
           cd release
-          sha256sum * > checksums-sha256.txt
-          cat checksums-sha256.txt
+          for f in *.exe *.AppImage *.deb; do
+            [ -e "$f" ] && sha256sum "$f" > "$f.sha256"
+          done
+          cat *.sha256
 
       - name: Create GitHub release
         env:
@@ -307,7 +309,7 @@ jobs:
           | Windows installer | `Cove-Download-Manager-VERSION-Setup.exe` |
           | Windows portable | `Cove-Download-Manager-VERSION-Portable.exe` |
 
-          Verify with `sha256sum -c checksums-sha256.txt`
+          Each artifact has a matching `.sha256` file for verification.
           NOTESEOF
           sed -i "s/VERSION/${VERSION}/g" "$NOTES_FILE"
 
