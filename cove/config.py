@@ -46,6 +46,7 @@ CATEGORY_MAP: dict[str, str] = {
     "ppt": "Documents", "pptx": "Documents", "csv": "Documents",
     "mp4": "Videos", "mkv": "Videos", "webm": "Videos",
     "mov": "Videos", "avi": "Videos", "flv": "Videos", "wmv": "Videos",
+    "m3u8": "Videos",
     "mp3": "Music", "flac": "Music", "wav": "Music",
     "ogg": "Music", "m4a": "Music", "aac": "Music",
     "zip": "Archives", "rar": "Archives", "7z": "Archives",

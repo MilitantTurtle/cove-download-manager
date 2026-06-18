@@ -368,6 +368,11 @@ class MainWindow(QMainWindow):
         self.stats.add_cell("Speed limit", "Off", last=True)
         body_lay.addWidget(self.stats)
 
+        # Downloads label above the two-column area so left/right columns align.
+        dl_label = QLabel("Downloads")
+        dl_label.setProperty("role", "section-label")
+        body_lay.addWidget(dl_label)
+
         # Two-column area
         cols = QHBoxLayout()
         cols.setSpacing(16)
@@ -402,11 +407,8 @@ class MainWindow(QMainWindow):
 
     def _build_stage(self) -> QVBoxLayout:
         stage = QVBoxLayout()
-        stage.setSpacing(12)
-
-        label = QLabel("Downloads")
-        label.setProperty("role", "section-label")
-        stage.addWidget(label)
+        stage.setContentsMargins(0, 0, 0, 0)
+        stage.setSpacing(0)
 
         self.tree = DownloadTree()
         self.tree.setColumnCount(5)
@@ -445,6 +447,7 @@ class MainWindow(QMainWindow):
 
     def _build_panel(self) -> QVBoxLayout:
         panel = QVBoxLayout()
+        panel.setContentsMargins(0, 0, 0, 0)
         panel.setSpacing(10)
 
         # Concurrent
@@ -741,7 +744,7 @@ class MainWindow(QMainWindow):
                     )
                 if task.status == "completed" or file_path is not None:
                     menu.addSeparator()
-                if task.status in {"queued", "active"}:
+                if task.status in {"queued", "active"} and task.backend != "ffmpeg":
                     menu.addAction("Pause").triggered.connect(
                         lambda: [self.queue.pause(t) for t in selected]
                     )
@@ -749,7 +752,7 @@ class MainWindow(QMainWindow):
                     menu.addAction("Start now").triggered.connect(
                         lambda: [self.queue.force_start(t) for t in selected]
                     )
-                if task.status == "paused":
+                if task.status == "paused" and task.backend != "ffmpeg":
                     menu.addAction("Resume").triggered.connect(
                         lambda: [self.queue.resume(t) for t in selected]
                     )
@@ -863,7 +866,7 @@ class MainWindow(QMainWindow):
         if task.total_bytes > 0:
             pct = int(completed * 100 / task.total_bytes)
             bar.setValue(pct)
-            seg_hint = f" [{task.segments}x]" if task.segments > 1 else ""
+            seg_hint = f" [{task.segments}x]" if task.segments > 1 and task.backend != "ffmpeg" else ""
             bar.setFormat(f"{pct}%{seg_hint}")
         else:
             bar.setValue(100 if task.status == "completed" else 0)
@@ -871,13 +874,23 @@ class MainWindow(QMainWindow):
         if task.num_pieces > 0 and task.bitfield:
             done = sum(1 for b in _hex_to_bits(task.bitfield, task.num_pieces) if b)
             bar.setToolTip(f"Pieces: {done}/{task.num_pieces}")
-        size_text = (
-            f"{_human_bytes(completed)} / {_human_bytes(task.total_bytes)}"
-            if task.total_bytes
-            else _human_bytes(completed)
-        )
-        item.setText(COL_SIZE, size_text)
-        item.setText(COL_SPEED, _speed_eta(task, completed))
+        if task.backend == "ffmpeg":
+            if task.total_bytes > 0:
+                e, d = task.completed_bytes, task.total_bytes
+                item.setText(COL_SIZE, f"{e // 60}:{e % 60:02d} / {d // 60}:{d % 60:02d}")
+            else:
+                item.setText(COL_SIZE, "--")
+        else:
+            size_text = (
+                f"{_human_bytes(completed)} / {_human_bytes(task.total_bytes)}"
+                if task.total_bytes
+                else _human_bytes(completed)
+            )
+            item.setText(COL_SIZE, size_text)
+        if task.backend == "ffmpeg" and task.status == "active":
+            item.setText(COL_SPEED, task.error or "")
+        else:
+            item.setText(COL_SPEED, _speed_eta(task, completed))
 
     def _slow_tick(self) -> None:
         self._refresh_stats()
