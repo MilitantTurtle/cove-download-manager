@@ -344,6 +344,26 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendNativeMessage({ action: "ping" }).then(sendResponse);
     return true;
   }
+  if (msg.type === "getDetectedStreams") {
+    browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+      const tabId = tabs[0] ? tabs[0].id : -1;
+      sendResponse(detectedStreams.get(tabId) || []);
+    });
+    return true;
+  }
+  if (msg.type === "downloadStream") {
+    sendNativeMessage({
+      action: "download",
+      url: msg.url,
+      filename: msg.filename || "",
+      referrer: "",
+      cookies: "",
+      fileSize: 0,
+      userAgent: navigator.userAgent,
+    }).then(() => sendResponse({ ok: true }))
+      .catch((e) => sendResponse({ error: e.message }));
+    return true;
+  }
 });
 
 // ---- Init ----
@@ -355,4 +375,78 @@ sendNativeMessage({ action: "ping" }).then((r) => {
   console.log("Cove startup ping:", JSON.stringify(r));
 }).catch((e) => {
   console.error("Cove startup ping FAILED:", e);
+});
+
+// ---- HLS/M3U8 stream detection ----
+
+const HLS_CONTENT_TYPES = [
+  "application/vnd.apple.mpegurl",
+  "application/x-mpegurl",
+  "audio/mpegurl",
+  "audio/x-mpegurl",
+];
+
+const detectedStreams = new Map();
+
+function isHlsResponse(details) {
+  const url = details.url || "";
+  if (url.split("?")[0].toLowerCase().endsWith(".m3u8")) return true;
+  const headers = details.responseHeaders || [];
+  for (const h of headers) {
+    if (h.name.toLowerCase() === "content-type") {
+      const ct = (h.value || "").toLowerCase().split(";")[0].trim();
+      if (HLS_CONTENT_TYPES.includes(ct)) return true;
+    }
+  }
+  return false;
+}
+
+if (browser.webRequest) {
+  browser.webRequest.onHeadersReceived.addListener(
+    (details) => {
+      if (!isHlsResponse(details)) return;
+      const tabId = details.tabId;
+      if (tabId < 0) return;
+      if (!detectedStreams.has(tabId)) {
+        detectedStreams.set(tabId, []);
+      }
+      const streams = detectedStreams.get(tabId);
+      if (streams.some((s) => s.url === details.url)) return;
+      streams.push({
+        url: details.url,
+        type: "m3u8",
+        timestamp: Date.now(),
+      });
+      updateStreamBadge(tabId);
+    },
+    { urls: ["<all_urls>"] },
+    ["responseHeaders"]
+  );
+}
+
+function updateStreamBadge(tabId) {
+  browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+    if (tabs[0] && tabs[0].id === tabId) {
+      const streams = detectedStreams.get(tabId) || [];
+      const count = streams.length;
+      const api = browser.browserAction || browser.action;
+      api.setBadgeText({ text: count > 0 ? String(count) : "" });
+      api.setBadgeBackgroundColor({ color: "#50e6cf" });
+    }
+  });
+}
+
+browser.tabs.onRemoved.addListener((tabId) => {
+  detectedStreams.delete(tabId);
+});
+
+browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url) {
+    detectedStreams.delete(tabId);
+    updateStreamBadge(tabId);
+  }
+});
+
+browser.tabs.onActivated.addListener(({ tabId }) => {
+  updateStreamBadge(tabId);
 });

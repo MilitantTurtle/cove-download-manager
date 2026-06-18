@@ -22,6 +22,7 @@
     "nativeMessaging",
     "notifications",
     "storage",
+    "webRequest",
     "<all_urls>"
   ],
 
