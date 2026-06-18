@@ -44,7 +44,10 @@ async function loadSettings() {
 // resetting `settings` to defaults. Event handlers must await this before
 // reading `settings`, or they'd act on defaults (ignoring excluded domains,
 // re-enabling a disabled extension, etc.).
-let settingsReady = loadSettings();
+let settingsReady = loadSettings().catch(() => {
+  settings = { ...DEFAULT_SETTINGS };
+  return settings;
+});
 
 function ensureSettings() {
   return settingsReady;
@@ -137,16 +140,37 @@ async function handleCreated(downloadItem) {
 }
 
 // Download ids we cancelled and still want erased from the browser's list.
-// The erase is driven by downloads.onChanged (below) so it doesn't depend on
-// setTimeout, which an MV3 service worker may never run if it sleeps.
-const interceptedIds = new Set();
+// Persisted to session storage so IDs survive MV3 service worker restarts.
+let interceptedIds = new Set();
 
-browser.downloads.onChanged.addListener((delta) => {
+async function loadInterceptedIds() {
+  try {
+    const store = browser.storage.session || browser.storage.local;
+    const data = await store.get("_interceptedIds");
+    if (Array.isArray(data._interceptedIds)) {
+      for (const id of data._interceptedIds) interceptedIds.add(id);
+    }
+  } catch {}
+}
+
+async function saveInterceptedIds() {
+  await interceptedIdsReady;
+  try {
+    const store = browser.storage.session || browser.storage.local;
+    store.set({ _interceptedIds: [...interceptedIds] }).catch(() => {});
+  } catch {}
+}
+
+const interceptedIdsReady = loadInterceptedIds();
+
+browser.downloads.onChanged.addListener(async (delta) => {
+  await interceptedIdsReady;
   if (!interceptedIds.has(delta.id)) return;
   const state = delta.state && delta.state.current;
   if (state === "interrupted" || state === "complete") {
     browser.downloads.erase({ id: delta.id }).catch(() => {});
     interceptedIds.delete(delta.id);
+    saveInterceptedIds();
   }
 });
 
@@ -157,6 +181,7 @@ async function interceptDownload(downloadItem) {
   // cancel flips it to "interrupted", which the onChanged listener erases.
   const dlId = downloadItem.id;
   interceptedIds.add(dlId);
+  await saveInterceptedIds();
   try {
     await browser.downloads.cancel(dlId);
   } catch {}

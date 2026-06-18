@@ -48,25 +48,43 @@ class UpdateInfo:
 
 # Accept extra numeric components (e.g. 1.5.0.1) and ignore them for
 # ordering, rather than failing to match and treating the version as 0.0.0.
-_VERSION_RE = re.compile(r"^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.\d+)*(?:[-+](.+))?$", re.I)
+_VERSION_RE = re.compile(
+    r"^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.\d+)*(?:-([a-zA-Z0-9._-]+))?(?:\+.+)?$",
+    re.I,
+)
+
+_PRE_PART_RE = re.compile(r"(\d+|\D+)")
 
 
-def _version_key(v: str) -> tuple[int, int, int, int, str]:
+def _pre_key(pre: str) -> tuple:
+    """Comparable key for a pre-release suffix like 'rc10' or 'beta.2'."""
+    parts: list[tuple[int, int | str]] = []
+    for seg in pre.split("."):
+        for tok in _PRE_PART_RE.findall(seg):
+            if tok.isdigit():
+                parts.append((0, int(tok)))
+            else:
+                parts.append((1, tok.lower()))
+    return tuple(parts)
+
+
+def _version_key(v: str) -> tuple:
     """Comparable key for a version string.
 
-    Handles pre-release/build suffixes: a plain release (no suffix) sorts
-    ABOVE any pre-release of the same x.y.z (semver: 1.5.0 > 1.5.0-rc1), and
-    extra components beyond patch are ignored for ordering. The 4th element
-    is the release flag (1 = release, 0 = pre-release).
+    Build metadata (+suffix) is ignored per semver. A plain release (no
+    pre-release suffix) sorts ABOVE any pre-release of the same x.y.z.
+    Pre-release suffixes are split into alpha/numeric tokens so rc10 > rc9.
     """
     m = _VERSION_RE.match((v or "").strip())
     if not m:
-        return (0, 0, 0, 1, "")
+        return (0, 0, 0, 1, ())
     major = int(m.group(1) or 0)
     minor = int(m.group(2) or 0)
     patch = int(m.group(3) or 0)
     pre = m.group(4) or ""
-    return (major, minor, patch, 1 if pre == "" else 0, pre)
+    if pre:
+        return (major, minor, patch, 0, _pre_key(pre))
+    return (major, minor, patch, 1, ())
 
 
 def version_newer(latest: str, current: str) -> bool:

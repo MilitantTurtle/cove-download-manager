@@ -401,20 +401,27 @@ class QueueManager(QObject):
 
         unlink = self._make_unlinker(path) if delete_file else None
         if gid:
-            # Unlink only after aria2 confirms the download is gone, otherwise
-            # it can flush/recreate the file or its .aria2 control file after
-            # we delete them, leaving orphans behind.
+            def _after_remove(*_args):
+                if unlink:
+                    unlink()
+                self._maybe_start_next()
+
+            def _after_remove_fail(*args):
+                self.error.emit(*args)
+                _after_remove()
+
             self._spawn(
                 self.rpc.remove,
                 gid,
-                on_done=(lambda *_: unlink()) if unlink else None,
-                on_fail=(lambda *_: unlink()) if unlink else None,
+                on_done=_after_remove,
+                on_fail=_after_remove_fail,
             )
-        elif unlink:
-            unlink()
+        else:
+            if unlink:
+                unlink()
+            self._maybe_start_next()
 
         self.task_removed.emit(tid)
-        self._maybe_start_next()
 
     @staticmethod
     def _make_unlinker(path):

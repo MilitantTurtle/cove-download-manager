@@ -159,8 +159,11 @@ def _binary_stdio() -> tuple[io.BufferedReader, io.BufferedWriter]:
         get_std_handle = windll.kernel32.GetStdHandle
         get_std_handle.argtypes = [wintypes.DWORD]
         get_std_handle.restype = wintypes.HANDLE
+        INVALID_HANDLE = wintypes.HANDLE(-1).value
         h_in = get_std_handle(STD_INPUT_HANDLE)
         h_out = get_std_handle(STD_OUTPUT_HANDLE)
+        if h_in in (INVALID_HANDLE, 0) or h_out in (INVALID_HANDLE, 0):
+            raise OSError("stdin/stdout handles not available")
         fd_in = msvcrt.open_osfhandle(h_in, os.O_RDONLY | os.O_BINARY)
         fd_out = msvcrt.open_osfhandle(h_out, os.O_WRONLY | os.O_BINARY)
         return os.fdopen(fd_in, "rb"), os.fdopen(fd_out, "wb")

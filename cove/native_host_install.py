@@ -227,9 +227,9 @@ def _install_posix() -> list[str]:
         _write_manifest(hosts_dir, wrapper, _chrome_manifest)
         installed.append(str(hosts_dir))
 
-    if installed:
+    for manifest_dir in installed:
         try:
-            _apply_flatpak_overrides(installed[0])
+            _apply_flatpak_overrides(manifest_dir)
         except Exception:
             pass
 
