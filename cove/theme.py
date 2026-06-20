@@ -34,6 +34,7 @@ _DARK = {
     "BORDER": "rgba(255, 255, 255, 0.06)",
     "BORDER_STRONG": "rgba(255, 255, 255, 0.10)",
     "BORDER_STRONGER": "rgba(255, 255, 255, 0.16)",
+    "WINDOW_EDGE": "rgba(255, 255, 255, 0.18)",
     "TEXT": "#ececf1",
     "TEXT_DIM": "#9a9aae",
     "TEXT_FAINT": "#6b6b80",
@@ -76,6 +77,7 @@ _LIGHT = {
     "BORDER": "rgba(0, 0, 0, 0.06)",
     "BORDER_STRONG": "rgba(0, 0, 0, 0.10)",
     "BORDER_STRONGER": "rgba(0, 0, 0, 0.18)",
+    "WINDOW_EDGE": "rgba(0, 0, 0, 0.28)",
     "TEXT": "#11181c",
     "TEXT_DIM": "#5b646e",
     "TEXT_FAINT": "#828e9c",
@@ -120,6 +122,9 @@ def _build_qss() -> str:
 QMainWindow, QDialog, QWidget#chrome {{
     background-color: {BG};
     color: {TEXT};
+}}
+QMainWindow {{
+    border: 4px solid {WINDOW_EDGE};
 }}
 
 QWidget {{
