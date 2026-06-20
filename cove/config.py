@@ -101,6 +101,8 @@ class Settings:
     proxy_username: str = ""
     proxy_password: str = ""
     intelligent_segments: bool = True
+    notify_on_complete: bool = True
+    notify_on_error: bool = True
     auto_sort_by_category: bool = False
     category_dirs: CategoryDirs = field(default_factory=CategoryDirs)
     schedule: ScheduleWindow = field(default_factory=ScheduleWindow)

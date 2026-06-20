@@ -314,6 +314,14 @@ class SettingsDialog(QDialog):
         )
         form.addRow("Smart segments", self.smart_segments)
 
+        self.notify_complete = QCheckBox("Notify when a download completes")
+        self.notify_complete.setChecked(settings.notify_on_complete)
+        form.addRow("Notifications", self.notify_complete)
+
+        self.notify_error = QCheckBox("Notify when a download fails")
+        self.notify_error.setChecked(settings.notify_on_error)
+        form.addRow("", self.notify_error)
+
         layout.addLayout(form)
 
         # Proxy
@@ -412,6 +420,8 @@ class SettingsDialog(QDialog):
         self.settings.time_format_24h = self.use_24h.isChecked()
         self.settings.auto_update_check = self.auto_update.isChecked()
         self.settings.intelligent_segments = self.smart_segments.isChecked()
+        self.settings.notify_on_complete = self.notify_complete.isChecked()
+        self.settings.notify_on_error = self.notify_error.isChecked()
         self.settings.proxy_type = self.proxy_type.currentData()
         self.settings.proxy_host = self.proxy_host.text().strip()
         self.settings.proxy_port = self.proxy_port.value()

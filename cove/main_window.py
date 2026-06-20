@@ -834,14 +834,14 @@ class MainWindow(QMainWindow):
         if self._tray is None:
             return
         name = task.filename or task.url
-        if task.status == "error":
+        if task.status == "error" and self.settings.notify_on_error:
             self._tray.showMessage(
                 "Download failed",
                 f"{name}\n{task.error or 'Unknown error'}",
                 QSystemTrayIcon.MessageIcon.Critical,
                 8000,
             )
-        else:
+        elif task.status == "completed" and self.settings.notify_on_complete:
             self._tray.showMessage(
                 "Download complete",
                 name,
