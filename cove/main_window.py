@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QSystemTrayIcon,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -322,6 +323,19 @@ class MainWindow(QMainWindow):
         self._refresh_stats()
         self._refresh_status_pill()
         self._refresh_schedule_section()
+
+        # System tray for download-outcome notifications.
+        self._tray: QSystemTrayIcon | None = None
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            icon = self.windowIcon()
+            if icon.isNull():
+                icon_path = find_icon()
+                if icon_path:
+                    icon = QIcon(str(icon_path))
+            self._tray = QSystemTrayIcon(icon, self)
+            self._tray.setToolTip(APP_NAME)
+            self._tray.show()
+        self._notified_status: dict[int, str] = {}
 
     # ---- UI construction ------------------------------------------------
 
@@ -804,11 +818,39 @@ class MainWindow(QMainWindow):
     def _on_task_changed(self, tid: int) -> None:
         task = self.queue.tasks.get(tid)
         if task:
+            self._maybe_notify(task)
             self._render(task)
             self._refresh_stats()
             self._refresh_status_pill()
 
+    def _maybe_notify(self, task: DownloadTask) -> None:
+        if task.status not in ("error", "completed"):
+            # Task left a terminal state (e.g. retried) — allow re-notification.
+            self._notified_status.pop(task.id, None)
+            return
+        if self._notified_status.get(task.id) == task.status:
+            return
+        self._notified_status[task.id] = task.status
+        if self._tray is None:
+            return
+        name = task.filename or task.url
+        if task.status == "error":
+            self._tray.showMessage(
+                "Download failed",
+                f"{name}\n{task.error or 'Unknown error'}",
+                QSystemTrayIcon.MessageIcon.Critical,
+                8000,
+            )
+        else:
+            self._tray.showMessage(
+                "Download complete",
+                name,
+                QSystemTrayIcon.MessageIcon.Information,
+                5000,
+            )
+
     def _on_task_removed(self, tid: int) -> None:
+        self._notified_status.pop(tid, None)
         item = self._items.pop(tid, None)
         self._bars.pop(tid, None)
         if item:

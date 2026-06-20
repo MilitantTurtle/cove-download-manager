@@ -175,19 +175,12 @@ browser.downloads.onChanged.addListener(async (delta) => {
 });
 
 async function interceptDownload(downloadItem) {
+  // Mark synchronously to block concurrent same-URL events before any await.
   markIntercepted(downloadItem.url);
 
-  // Cancel the browser download and scrub it from the browser's list. The
-  // cancel flips it to "interrupted", which the onChanged listener erases.
   const dlId = downloadItem.id;
-  interceptedIds.add(dlId);
-  await saveInterceptedIds();
-  try {
-    await browser.downloads.cancel(dlId);
-  } catch {}
-  browser.downloads.erase({ id: dlId }).catch(() => {});
 
-  // Gather cookies for the download URL.
+  // Gather cookies while the browser download is still running.
   let cookieStr = "";
   try {
     const cookies = await browser.cookies.getAll({ url: downloadItem.url });
@@ -203,8 +196,10 @@ async function interceptDownload(downloadItem) {
     filename = parts[parts.length - 1] || null;
   }
 
-  console.log("Cove: intercepting download", downloadItem.url);
+  console.log("Cove: sending download to native host", downloadItem.url);
 
+  // Send to native host BEFORE cancelling. The browser download continues
+  // until we have confirmed acceptance of this specific request.
   const result = await sendNativeMessage({
     action: "download",
     url: downloadItem.url,
@@ -218,9 +213,27 @@ async function interceptDownload(downloadItem) {
   console.log("Cove: native host response", JSON.stringify(result));
 
   if (result.status === "ok") {
+    // Confirmed: native host accepted this download. Now cancel the browser copy.
+    interceptedIds.add(dlId);
+    await saveInterceptedIds();
+    try {
+      await browser.downloads.cancel(dlId);
+    } catch {
+      // The browser download completed before cancel() ran. Both the browser
+      // and Cove will have the file. This is an inherent limitation of the
+      // WebExtension API: there is no pause/reservation primitive that would
+      // let us hold the browser transfer while confirming with the native host.
+      // The alternative (cancel-first) silently loses downloads when Cove is
+      // unavailable, which is the worse failure mode.
+    }
+    browser.downloads.erase({ id: dlId }).catch(() => {});
     showNotification("Download sent to Cove", filename || downloadItem.url);
   } else {
-    showNotification("Cove error", result.message || "Failed to send download");
+    // Native host failed or is unavailable. Clear the dedup mark so the
+    // browser's original download proceeds unimpeded and future intercepts
+    // of the same URL are not blocked.
+    recentIntercepted.delete(downloadItem.url);
+    console.error("Cove: native host failed, browser download continues", result.message);
   }
 }
 
@@ -279,7 +292,14 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
   if (result.status === "ok") {
     showNotification("Download sent to Cove", filename || url);
   } else {
-    showNotification("Cove error", result.message || "Failed to send download");
+    console.error("Cove: context menu send failed, falling back to browser", result.message);
+    try {
+      markIntercepted(url);
+      await browser.downloads.download({ url, filename: filename || undefined, saveAs: false });
+      showNotification("Cove unavailable", "Downloading in browser instead");
+    } catch (fallbackErr) {
+      showNotification("Cove error", result.message || "Failed to send download");
+    }
   }
 });
 
