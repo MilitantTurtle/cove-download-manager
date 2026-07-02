@@ -65,6 +65,7 @@ from .dialogs import (
 )
 from .queue import DownloadTask, QueueManager
 from .scheduler import Scheduler
+from .system_open import child_env
 from .widgets import (
     Footer,
     FramelessResizer,
@@ -176,7 +177,7 @@ def _open_path(path: Path) -> bool:
             return True
         # Linux / *BSD
         if shutil.which("xdg-open"):
-            subprocess.Popen(["xdg-open", str(path)])
+            subprocess.Popen(["xdg-open", str(path)], env=child_env())
             return True
     except Exception:
         return False
@@ -204,7 +205,7 @@ def _reveal_in_folder(path: Path) -> bool:
         if not target.exists():
             return False
         if shutil.which("xdg-open"):
-            subprocess.Popen(["xdg-open", str(target)])
+            subprocess.Popen(["xdg-open", str(target)], env=child_env())
             return True
     except Exception:
         return False
