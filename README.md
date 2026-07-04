@@ -34,8 +34,12 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
 - **Auto-update** - checks GitHub Releases on launch. Always prompts
   before installing, never silent, and refuses to install assets that
   don't match a published `SHA256SUMS` digest.
-- **Browser extension** - intercept downloads from Firefox, Zen, LibreWolf,
-  and other Firefox-based browsers. See [Browser Extension](#browser-extension).
+- **Browser extension** - intercept downloads from Firefox, Chrome, and
+  their derivatives (Zen, LibreWolf, Edge, Brave, and more). See
+  [Browser Extension](#browser-extension).
+- **In-page video pill** - hover a video on any page and a floating
+  "Download with Cove" pill appears; one click sends the media to Cove.
+  Direct MP4/WebM everywhere, detected HLS (M3U8) streams on Firefox.
 - **Frameless cove UI** - custom titlebar, dark `#0b0b10` palette, mint
   accent. Dragging via `startSystemMove`, edge-resize via
   `startSystemResize`, both Wayland-safe.
@@ -82,10 +86,10 @@ Both Windows builds bundle `aria2c.exe`, no system aria2 required.
 
 ### Verifying downloads
 
-Every release ships a `checksums-sha256.txt` file. Verify with:
+Every artifact ships with a matching `.sha256` sidecar file. Verify with:
 
 ```bash
-sha256sum -c checksums-sha256.txt
+sha256sum -c Cove-Download-Manager-<version>-x86_64.AppImage.sha256
 ```
 
 (or `Get-FileHash -Algorithm SHA256` on Windows). Cove's auto-update
@@ -99,8 +103,9 @@ verifies this digest before swapping any binary.
 from Firefox Add-ons. Works with Firefox, Zen, LibreWolf, Waterfox, Floorp,
 and other Firefox-based browsers.
 
-**Chrome / Chromium:** install from the Chrome Web Store (link pending
-publication). Works with Chrome, Edge, Brave, Vivaldi, Opera, and Chromium.
+**Chrome / Chromium:** install the [Cove Download Manager extension](https://chromewebstore.google.com/detail/cove-download-manager/liakghhamogjcmmgnmcpephlfecmilnf)
+from the Chrome Web Store. Works with Chrome, Edge, Brave, Vivaldi, Opera,
+and Chromium.
 
 ### How it works
 
@@ -113,10 +118,10 @@ publication). Works with Chrome, Edge, Brave, Vivaldi, Opera, and Chromium.
 
 `python scripts/build_extension.py` produces `dist/firefox/` and
 `dist/chrome/` (plus zips). Firefox uses Manifest V2; Chrome uses Manifest V3
-with a pinned key so the extension id is stable. The Chrome id is whitelisted
-in the native host's `allowed_origins`. After the Web Store assigns the
-published id, add it to `_CHROME_EXTENSION_IDS` in
-`cove/native_host_install.py` and ship a new build.
+with a pinned key so the extension id is stable. Both the dev id and the
+published Web Store id are whitelisted in the native host's
+`allowed_origins` (`_CHROME_EXTENSION_IDS` in
+`cove/native_host_install.py`).
 
 Once connected, the extension intercepts downloads matching your configured
 file types and minimum size, then sends them to Cove with cookies, referrer,
@@ -134,6 +139,17 @@ and user-agent headers so authenticated downloads work seamlessly.
 > **Tip:** You can also right-click any link and choose
 > "Download with Cove" from the context menu, regardless of interception
 > settings.
+
+### In-page video pill
+
+Hover a `<video>` player on any page and a small floating "Download with
+Cove" pill appears in its top-right corner. Clicking it sends the media
+URL to Cove with the page's cookies and referrer. Direct `http(s)` video
+sources work in both browsers; on Firefox the pill also picks up HLS
+(M3U8) streams the extension detected for the tab. Nothing downloads
+automatically - the pill only acts on an explicit click, and unsupported
+media (DRM, blob-only players with no detected stream) simply shows no
+pill.
 
 ---
 
