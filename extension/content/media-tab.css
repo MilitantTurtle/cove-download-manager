@@ -1,0 +1,21 @@
+/* extension/content/media-tab.css
+ *
+ * Styles only the shadow host element injected by media-tab.js. All pill
+ * visuals live inside the shadow root (see media-tab.js). Everything is
+ * namespaced with cove- and marked !important so page CSS cannot move or
+ * reveal the host.
+ */
+
+.cove-media-tab-host {
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  display: none;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+}

@@ -365,10 +365,20 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === "getDetectedStreams") {
+    // Content scripts have sender.tab; the popup does not and gets the
+    // active tab's streams as before.
+    if (sender.tab && typeof sender.tab.id === "number") {
+      sendResponse(detectedStreams.get(sender.tab.id) || []);
+      return;
+    }
     browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
       const tabId = tabs[0] ? tabs[0].id : -1;
       sendResponse(detectedStreams.get(tabId) || []);
     });
+    return true;
+  }
+  if (msg.type === "downloadMedia") {
+    handleMediaTabDownload(msg, sender).then(sendResponse);
     return true;
   }
   if (msg.type === "downloadStream") {
@@ -385,6 +395,54 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 });
+
+// ---- Media-tab (in-page pill) download ----
+
+// Explicit user click on the in-page Cove pill. Routes through the same
+// native "download" action as interception and the context menu.
+async function handleMediaTabDownload(msg, sender) {
+  const url = msg.url || "";
+  if (!/^https?:\/\//i.test(url)) {
+    return { ok: false, error: "Unsupported URL" };
+  }
+
+  // Same dedup pattern as interception: mark before sending so a direct-file
+  // URL the browser also starts downloading is not intercepted twice.
+  markIntercepted(url);
+
+  let cookieStr = "";
+  try {
+    const cookies = await browser.cookies.getAll({ url });
+    cookieStr = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+  } catch {}
+
+  let filename = null;
+  try {
+    const pathname = new URL(url).pathname;
+    const last = pathname.split("/").pop();
+    if (last && last.includes(".")) filename = decodeURIComponent(last);
+  } catch {}
+
+  const referrer = msg.pageUrl || (sender.tab && sender.tab.url) || "";
+
+  const result = await sendNativeMessage({
+    action: "download",
+    url: url,
+    filename: filename,
+    referrer: referrer,
+    cookies: cookieStr,
+    fileSize: 0,
+    userAgent: navigator.userAgent,
+  });
+
+  if (result.status === "ok") {
+    showNotification("Download sent to Cove", filename || url);
+    return { ok: true };
+  }
+  // Clear the dedup mark so a manual retry is not blocked.
+  recentIntercepted.delete(url);
+  return { ok: false, error: result.message || "Native host error" };
+}
 
 // ---- Init ----
 
@@ -445,6 +503,13 @@ if (browser.webRequest) {
         timestamp: Date.now(),
       });
       updateStreamBadge(tabId);
+      // Push to the tab's content script (media-tab pill). Fails harmlessly
+      // when no content script is listening.
+      try {
+        browser.tabs
+          .sendMessage(tabId, { type: "coveStreamsUpdated", streams })
+          .catch(() => {});
+      } catch {}
     },
     { urls: ["<all_urls>"] },
     ["responseHeaders"]
