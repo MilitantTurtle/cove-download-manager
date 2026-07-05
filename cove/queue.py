@@ -24,6 +24,32 @@ from .config import Settings
 URL_RE = re.compile(r"https?://\S+|ftp://\S+|magnet:\?\S+")
 
 
+def _row_get(row, key, default=None):
+    """sqlite3.Row has no .get(); look up a column, falling back to
+    default if it's absent (e.g. an older DB missing an additive column)."""
+    return row[key] if key in row.keys() else default
+
+
+def _task_from_persisted_row(row) -> "DownloadTask":
+    """Rebuild a DownloadTask from a persisted 'downloads' row on startup."""
+    return DownloadTask(
+        id=row["id"],
+        url=row["url"],
+        out_dir=row["out_dir"],
+        connections=row["connections"],
+        speed_limit_kbps=row["speed_limit_kbps"],
+        filename=row["filename"],
+        gid=None,
+        status="queued",
+        total_bytes=row["total_bytes"],
+        completed_bytes=row["completed_bytes"],
+        created_at=row["created_at"],
+        segments=row["segments"],
+        backend=_row_get(row, "backend", "aria2"),
+        convert_mp3=bool(_row_get(row, "convert_mp3", 0)),
+    )
+
+
 @dataclass
 class DownloadTask:
     id: int
@@ -171,22 +197,7 @@ class QueueManager(QObject):
                 "SELECT * FROM downloads WHERE status IN ('queued','active','paused')"
             ).fetchall()
         for row in rows:
-            t = DownloadTask(
-                id=row["id"],
-                url=row["url"],
-                out_dir=row["out_dir"],
-                connections=row["connections"],
-                speed_limit_kbps=row["speed_limit_kbps"],
-                filename=row["filename"],
-                gid=None,
-                status="queued",
-                total_bytes=row["total_bytes"],
-                completed_bytes=row["completed_bytes"],
-                created_at=row["created_at"],
-                segments=row["segments"],
-                backend=row.get("backend", "aria2"),
-                convert_mp3=bool(row["convert_mp3"]),
-            )
+            t = _task_from_persisted_row(row)
             self.tasks[t.id] = t
 
     # aria2 download status -> Cove task status. "waiting" is omitted on
