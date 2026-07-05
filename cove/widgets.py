@@ -274,24 +274,33 @@ class Titlebar(QFrame):
 
         lay.addStretch(1)
 
+        # Theme toggle + window controls form one tight button cluster
+        # (matches Cove Universal Converter's titlebar control grouping).
+        controls = QWidget(self)
+        ctrl_lay = QHBoxLayout(controls)
+        ctrl_lay.setContentsMargins(0, 0, 0, 0)
+        ctrl_lay.setSpacing(2)
+
         self.theme_btn = ThemeButton(theme_name)
-        lay.addWidget(self.theme_btn)
+        ctrl_lay.addWidget(self.theme_btn)
 
         self.min_btn = _CtrlButton("min")
         self.min_btn.setToolTip("Minimize")
         self.min_btn.clicked.connect(self._window.showMinimized)
-        lay.addWidget(self.min_btn)
+        ctrl_lay.addWidget(self.min_btn)
 
         self.max_btn = _CtrlButton("max")
         self.max_btn.setToolTip("Maximize")
         self.max_btn.clicked.connect(self._toggle_maximize)
-        lay.addWidget(self.max_btn)
+        ctrl_lay.addWidget(self.max_btn)
 
         self.close_btn = _CtrlButton("close")
         self.close_btn.setObjectName("CloseBtn")
         self.close_btn.setToolTip("Close")
         self.close_btn.clicked.connect(self._window.close)
-        lay.addWidget(self.close_btn)
+        ctrl_lay.addWidget(self.close_btn)
+
+        lay.addWidget(controls, 0, Qt.AlignVCenter)
 
     def _toggle_maximize(self) -> None:
         if self._window.isMaximized():
