@@ -36,6 +36,10 @@ _MIGRATIONS = [
     [
         "ALTER TABLE downloads ADD COLUMN backend TEXT DEFAULT 'aria2'",
     ],
+    # v2 -> v3: add convert_mp3 flag for post-download MP3 conversion
+    [
+        "ALTER TABLE downloads ADD COLUMN convert_mp3 INTEGER DEFAULT 0",
+    ],
 ]
 
 

@@ -2,7 +2,7 @@
 mediates between the UI and the aria2 RPC client.
 
 State machine per task:
-    queued -> active -> (paused -> active)* -> (completed | error | removed)
+    queued -> active -> (paused -> active)* -> [converting] -> (completed | error | removed)
 
 The QueueManager itself runs entirely on the Qt main thread. RPC calls
 fan out to background QThreadPool workers; results come back via signals.
@@ -33,7 +33,7 @@ class DownloadTask:
     speed_limit_kbps: int = 0
     filename: Optional[str] = None
     gid: Optional[str] = None
-    status: str = "queued"  # queued | active | paused | completed | error | removed
+    status: str = "queued"  # queued | active | paused | converting | completed | error | removed
     total_bytes: int = 0
     completed_bytes: int = 0
     download_speed: int = 0
@@ -45,6 +45,7 @@ class DownloadTask:
     num_pieces: int = 0
     last_status_at: float = 0.0
     backend: str = "aria2"
+    convert_mp3: bool = False
 
     @property
     def progress(self) -> float:
@@ -136,6 +137,8 @@ class QueueManager(QObject):
         self._hls_procs: dict[int, QProcess] = {}
         self._hls_duration: dict[int, float] = {}
         self._hls_stderr: dict[int, str] = {}
+        self._convert_procs: dict[int, QProcess] = {}
+        self._convert_stderr: dict[int, str] = {}
         self._poll = QTimer(self)
         self._poll.setInterval(500)
         self._poll.timeout.connect(self._poll_active)
@@ -155,6 +158,15 @@ class QueueManager(QObject):
 
     def _load_persisted(self) -> None:
         with db.connect() as conn:
+            # A conversion cannot survive a restart; revert any row stuck in
+            # 'converting' to a clear error so nothing stays active forever.
+            # The source file is kept, so the user can retry via the menu.
+            conn.execute(
+                "UPDATE downloads SET status='error', "
+                "error='MP3 conversion interrupted by restart; source file kept', "
+                "finished_at=? WHERE status='converting'",
+                (time.time(),),
+            )
             rows = conn.execute(
                 "SELECT * FROM downloads WHERE status IN ('queued','active','paused')"
             ).fetchall()
@@ -173,6 +185,7 @@ class QueueManager(QObject):
                 created_at=row["created_at"],
                 segments=row["segments"],
                 backend=row.get("backend", "aria2"),
+                convert_mp3=bool(row["convert_mp3"]),
             )
             self.tasks[t.id] = t
 
@@ -282,7 +295,7 @@ class QueueManager(QObject):
                 """
                 UPDATE downloads
                 SET filename=?, status=?, gid=?, total_bytes=?, completed_bytes=?,
-                    error=?, finished_at=?, segments=?, out_dir=?
+                    error=?, finished_at=?, segments=?, out_dir=?, convert_mp3=?
                 WHERE id=?
                 """,
                 (
@@ -295,6 +308,7 @@ class QueueManager(QObject):
                     t.finished_at,
                     t.segments,
                     t.out_dir,
+                    int(t.convert_mp3),
                     t.id,
                 ),
             )
@@ -312,7 +326,9 @@ class QueueManager(QObject):
             return str(Path(self.settings.download_dir) / category)
         return self.settings.download_dir
 
-    def add_url(self, url: str, out_dir: str | None = None) -> Optional[int]:
+    def add_url(
+        self, url: str, out_dir: str | None = None, convert_mp3: bool = False
+    ) -> Optional[int]:
         url = url.strip()
         if not URL_RE.match(url):
             return None
@@ -341,8 +357,8 @@ class QueueManager(QObject):
                 """
                 INSERT INTO downloads
                     (url, out_dir, connections, speed_limit_kbps, status,
-                     created_at, category, backend, filename)
-                VALUES (?,?,?,?,?,?,?,?,?)
+                     created_at, category, backend, filename, convert_mp3)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     url,
@@ -354,6 +370,7 @@ class QueueManager(QObject):
                     category,
                     backend,
                     filename,
+                    int(convert_mp3),
                 ),
             )
             tid = cur.lastrowid
@@ -364,14 +381,21 @@ class QueueManager(QObject):
             connections=self.settings.connections_per_server,
             backend=backend,
             filename=filename if backend == "ffmpeg" else None,
+            convert_mp3=convert_mp3,
         )
         self.tasks[tid] = t
         self.task_added.emit(tid)
         self._maybe_start_next()
         return tid
 
-    def add_urls(self, urls: list[str], out_dir: str | None = None) -> list[int]:
-        return [tid for u in urls if (tid := self.add_url(u, out_dir)) is not None]
+    def add_urls(
+        self, urls: list[str], out_dir: str | None = None, convert_mp3: bool = False
+    ) -> list[int]:
+        return [
+            tid
+            for u in urls
+            if (tid := self.add_url(u, out_dir, convert_mp3=convert_mp3)) is not None
+        ]
 
     def pause(self, tid: int) -> None:
         t = self.tasks.get(tid)
@@ -444,6 +468,11 @@ class QueueManager(QObject):
             self._hls_stderr.pop(tid, None)
             if proc.state() != QProcess.NotRunning:
                 proc.terminate()
+        if tid in self._convert_procs:
+            cproc = self._convert_procs.pop(tid)
+            self._convert_stderr.pop(tid, None)
+            if cproc.state() != QProcess.NotRunning:
+                cproc.terminate()
         self.tasks.pop(tid, None)
         gid = t.gid
         path = self._task_path(t)
@@ -628,6 +657,9 @@ class QueueManager(QObject):
             self._hls_duration.pop(t.id, None)
             stderr = self._hls_stderr.pop(t.id, "")
             if exit_code == 0:
+                if t.convert_mp3 and self._begin_conversion(t):
+                    self._maybe_start_next()
+                    return
                 t.status = "completed"
                 t.finished_at = time.time()
                 t.error = None
@@ -642,6 +674,151 @@ class QueueManager(QObject):
         proc.readyReadStandardOutput.connect(on_read)
         proc.finished.connect(on_finished)
         proc.start(cmd[0], cmd[1:])
+
+    def convert_to_mp3(self, tid: int) -> None:
+        """Manually convert a completed task's file to MP3 (context menu)."""
+        t = self.tasks.get(tid)
+        if not t or t.status != "completed":
+            return
+        if not self._begin_conversion(t):
+            self.error.emit("Nothing to convert: file missing or already MP3")
+
+    def _begin_conversion(self, t: DownloadTask) -> bool:
+        """Start ffmpeg MP3 conversion for a finished download.
+
+        Returns True when conversion took over the task lifecycle (started,
+        or failed fast into an error state); False when there is nothing to
+        convert and the caller should complete the task normally.
+        """
+        import shutil
+        from .convert import ffmpeg_mp3_command, reserve_output_path, temp_output_path
+
+        src = self._task_path(t)
+        if src is None or not src.exists() or src.suffix.lower() == ".mp3":
+            return False
+        if not shutil.which("ffmpeg"):
+            t.status = "error"
+            t.error = "ffmpeg is required for MP3 conversion"
+            t.finished_at = time.time()
+            self._persist(t)
+            self.task_changed.emit(t.id)
+            return True
+
+        # ffmpeg writes to a task-owned temp file; the final .mp3 name is
+        # reserved atomically only after success, so a concurrent conversion
+        # or user file can never be overwritten or deleted.
+        dest = temp_output_path(src, t.id)
+        cmd = ffmpeg_mp3_command(src, dest, source_url=t.url or None)
+        t.status = "converting"
+        t.error = None
+        self._persist(t)
+        self.task_changed.emit(t.id)
+
+        proc = QProcess(self)
+        proc.setProcessChannelMode(QProcess.MergedChannels)
+        self._convert_procs[t.id] = proc
+        self._convert_stderr[t.id] = ""
+
+        def on_read(tid=t.id):
+            data = proc.readAllStandardOutput().data().decode("utf-8", errors="replace")
+            self._convert_stderr[tid] = (self._convert_stderr.get(tid, "") + data)[-4000:]
+
+        def on_finished(exit_code, _exit_status, tid=t.id, src=src, dest=dest):
+            self._convert_procs.pop(tid, None)
+            stderr = self._convert_stderr.pop(tid, "")
+            tt = self.tasks.get(tid)
+            ok = exit_code == 0 and dest.exists() and dest.stat().st_size > 0
+            if tt is None:
+                # Task removed mid-conversion; drop the orphan output but
+                # never touch the source.
+                try:
+                    dest.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                return
+            final = None
+            if ok:
+                try:
+                    final = reserve_output_path(src)
+                    os.replace(dest, final)
+                except OSError:
+                    if final is not None:
+                        try:
+                            final.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                    final = None
+            if final is not None:
+                # Source is deleted only after the verified success above
+                # and the atomic move onto the reserved final name.
+                tt.filename = final.name
+                tt.status = "completed"
+                tt.finished_at = time.time()
+                tt.error = None
+                if tt.backend != "ffmpeg":
+                    try:
+                        size = final.stat().st_size
+                        tt.total_bytes = size
+                        tt.completed_bytes = size
+                    except OSError:
+                        pass
+                try:
+                    src.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            else:
+                # The temp file is owned by this conversion, so removing
+                # its partial output can never touch a user file.
+                try:
+                    dest.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                tt.status = "error"
+                last = "\n".join(stderr.splitlines()[-5:])
+                tt.error = last or (
+                    f"ffmpeg exited with code {exit_code}"
+                    if exit_code != 0
+                    else "could not move converted file into place"
+                )
+                tt.finished_at = time.time()
+            self._persist(tt)
+            self.task_changed.emit(tid)
+            self._maybe_start_next()
+
+        def on_error(err, tid=t.id, dest=dest):
+            # finished() never fires after FailedToStart, so fail the task
+            # here; every other QProcess error is followed by finished().
+            if err != QProcess.FailedToStart:
+                return
+            if self._convert_procs.pop(tid, None) is None:
+                return
+            self._convert_stderr.pop(tid, None)
+            try:
+                dest.unlink(missing_ok=True)
+            except OSError:
+                pass
+            tt = self.tasks.get(tid)
+            if tt is None:
+                return
+            tt.status = "error"
+            tt.error = "ffmpeg failed to start"
+            tt.finished_at = time.time()
+            self._persist(tt)
+            self.task_changed.emit(tid)
+            self._maybe_start_next()
+
+        def on_finished_once(exit_code, exit_status, tid=t.id):
+            # Skip if on_error already resolved this conversion.
+            if tid not in self._convert_procs and self.tasks.get(tid) is not None \
+                    and self.tasks[tid].status != "converting":
+                return
+            on_finished(exit_code, exit_status)
+
+        proc.readyReadStandardOutput.connect(on_read)
+        proc.errorOccurred.connect(on_error)
+        proc.finished.connect(on_finished_once)
+        proc.start(cmd[0], cmd[1:])
+        return True
 
     def _launch(self, t: DownloadTask) -> None:
         t.status = "active"
@@ -836,7 +1013,10 @@ class QueueManager(QObject):
                 t.filename = Path(path).name
         a2_status = status.get("status")
         if a2_status == "complete":
-            if t.status == "completed":
+            if t.status in ("completed", "converting"):
+                return
+            if t.convert_mp3 and self._begin_conversion(t):
+                self._maybe_start_next()
                 return
             t.status = "completed"
             t.finished_at = time.time()

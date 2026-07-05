@@ -605,7 +605,7 @@ class MainWindow(QMainWindow):
         self.settings.download_dir = dlg.get_dir()
         self.settings.save()
         self._refresh_folder_chip()
-        self.queue.add_urls(urls)
+        self.queue.add_urls(urls, convert_mp3=dlg.get_convert_mp3())
 
     def _add_from_clipboard(self) -> None:
         text = QGuiApplication.clipboard().text() or ""
@@ -769,6 +769,16 @@ class MainWindow(QMainWindow):
                     )
                     reveal_a.triggered.connect(
                         lambda _=False, p=file_path: _reveal_in_folder(p)
+                    )
+                if (
+                    task.status == "completed"
+                    and file_path is not None
+                    and file_path.suffix.lower() != ".mp3"
+                ):
+                    conv_a = menu.addAction("Convert to MP3")
+                    conv_a.setEnabled(file_path.exists())
+                    conv_a.triggered.connect(
+                        lambda _=False, t=tid: self.queue.convert_to_mp3(t)
                     )
                 if task.status == "completed" or file_path is not None:
                     menu.addSeparator()
@@ -1090,6 +1100,7 @@ def _status_label(s: str) -> str:
     return {
         "queued": "Queued",
         "active": "Downloading",
+        "converting": "Converting to MP3",
         "paused": "Paused",
         "completed": "Done",
         "error": "Error",
