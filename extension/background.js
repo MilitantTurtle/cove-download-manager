@@ -118,7 +118,22 @@ browser.downloads.onCreated.addListener((downloadItem) => {
   handleCreated(downloadItem);
 });
 
+// Max age of a download item we treat as new. Chromium replays restored
+// history items through onCreated when the download manager initializes
+// (crbug 41142658); on MV3 that can happen on every service worker wake.
+// Replayed items carry their original startTime, fresh ones start "now".
+const MAX_NEW_DOWNLOAD_AGE_MS = 10000;
+
 async function handleCreated(downloadItem) {
+  // Restored/replayed history items are never "in_progress". Without this
+  // guard, Chrome re-sends the user's entire download history (e.g. items
+  // another download manager cancelled) to Cove on every worker wake.
+  if (downloadItem.state && downloadItem.state !== "in_progress") return;
+  if (downloadItem.startTime) {
+    const started = Date.parse(downloadItem.startTime);
+    if (!Number.isNaN(started) && Date.now() - started > MAX_NEW_DOWNLOAD_AGE_MS) return;
+  }
+
   await ensureSettings();
   const url = downloadItem.url || "";
   if (!settings.enabled) return;
