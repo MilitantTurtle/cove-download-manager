@@ -7,7 +7,7 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
 ![Python](https://img.shields.io/badge/python-3.10%2B-orange?style=flat-square&logo=python)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux-informational?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/release-v1.4.4-5eead4?style=flat-square)
+![Version](https://img.shields.io/badge/release-v1.8.0-5eead4?style=flat-square)
 
 ![Cove Download Manager](docs/screenshot.png)
 
@@ -28,9 +28,25 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
   itself; inside it picks up where it left off.
 - **Add from clipboard** - paste many URLs at once, pick which to queue.
 - **Delete key + right-click menu** - remove selected, clear completed,
-  clear all. Multi-select aware. File deletion is opt-in per row.
+  clear all. Multi-select aware. File deletion is opt-in per row. The
+  context menu also covers Open file, Show in folder, Start now
+  (force-start, jumps the queue), Retry on errored tasks, and Convert to
+  MP3 on completed non-MP3 files.
 - **Resumable** - queue state persists in SQLite, partial downloads resume
   via aria2's control files. Closing the app does not lose work.
+- **Convert to MP3** - check "Convert to MP3 after download" when adding a
+  download, or right-click any completed file later. Runs `ffmpeg`
+  (must be on `PATH`) with `libmp3lame`, keeps metadata, tags a
+  `Source: <url>` comment, and never overwrites an existing file.
+- **HLS / M3U8 stream downloads** - any URL ending in `.m3u8` is
+  automatically routed through an `ffmpeg`-backed downloader instead of
+  aria2, no configuration needed. Pause/resume aren't available for these
+  tasks since ffmpeg streams straight through.
+- **Light / dark theme** - toggle button in the titlebar next to the
+  window controls swaps the whole UI live, no restart.
+- **Category folders** - assign a destination folder per category in
+  Settings, with an optional auto-sort toggle that files completed
+  downloads into per-category subfolders automatically.
 - **Auto-update** - checks GitHub Releases on launch. Always prompts
   before installing, never silent, and refuses to install assets that
   don't match a published `SHA256SUMS` digest.
@@ -40,8 +56,8 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
 - **In-page video pill** - hover a video on any page and a floating
   "Download with Cove" pill appears; one click sends the media to Cove.
   Direct MP4/WebM everywhere, detected HLS (M3U8) streams on Firefox.
-- **Frameless cove UI** - custom titlebar, dark `#0b0b10` palette, mint
-  accent. Dragging via `startSystemMove`, edge-resize via
+- **Frameless cove UI** - custom titlebar, mint accent, light and dark
+  palettes. Dragging via `startSystemMove`, edge-resize via
   `startSystemResize`, both Wayland-safe.
 
 ---
@@ -250,14 +266,19 @@ cove-download-manager/
 │   ├── aria2.py                 #   aria2c lifecycle + JSON-RPC client
 │   ├── clipboard.py             #   URL extractor for "Add from clipboard"
 │   ├── config.py                #   JSON-backed Settings + ScheduleWindow
+│   ├── convert.py               #   post-download MP3 conversion via ffmpeg
 │   ├── db.py                    #   SQLite schema + connection helper
 │   ├── dialogs.py               #   Add / Schedule / Settings / batch picker
+│   ├── entry.py                 #   CLI entry point
+│   ├── hls.py                   #   ffmpeg-backed HLS (M3U8) downloader
 │   ├── main_window.py           #   QMainWindow + table + side panel
 │   ├── native_host_install.py   #   auto-register native messaging hosts
 │   ├── native_messaging.py      #   native messaging host for browser extension
+│   ├── portable.py              #   portable-mode data directory detection
 │   ├── queue.py                 #   QueueManager + DownloadTask
 │   ├── scheduler.py             #   time-window allowed/not-allowed gate
-│   ├── theme.py                 #   cove design tokens + QSS
+│   ├── system_open.py           #   AppImage env scrubbing for xdg-open children
+│   ├── theme.py                 #   cove design tokens + QSS, light/dark themes
 │   ├── updater.py               #   GitHub releases + SHA-256 verifier
 │   └── widgets.py               #   Titlebar, BrandBadge, StatsStrip, ...
 ├── extension/                   # Firefox WebExtension (native messaging)
