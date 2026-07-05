@@ -119,19 +119,25 @@ def _build_qss() -> str:
     return f"""
 /* Base ----------------------------------------------------------- */
 
+QWidget {{
+    background-color: transparent;
+    color: {TEXT};
+    font-family: "Geist", "Inter", "Segoe UI", "Cantarell", sans-serif;
+    font-size: 10pt;
+}}
+
+/* Declared after the generic QWidget rule above so it wins the Qt
+stylesheet cascade tie (equal-specificity type selectors resolve to
+"last rule wins"). Otherwise QDialog/QMainWindow windows fall through
+to "transparent" and pick up a native/system background instead of
+the theme's BG - invisible in dark mode by coincidence, but breaks
+light mode outright. */
 QMainWindow, QDialog, QWidget#chrome {{
     background-color: {BG};
     color: {TEXT};
 }}
 QMainWindow {{
     border: 4px solid {WINDOW_EDGE};
-}}
-
-QWidget {{
-    background-color: transparent;
-    color: {TEXT};
-    font-family: "Geist", "Inter", "Segoe UI", "Cantarell", sans-serif;
-    font-size: 10pt;
 }}
 
 QToolTip {{
