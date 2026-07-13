@@ -30,14 +30,9 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
 - **Delete key + right-click menu** - remove selected, clear completed,
   clear all. Multi-select aware. File deletion is opt-in per row. The
   context menu also covers Open file, Show in folder, Start now
-  (force-start, jumps the queue), Retry on errored tasks, and Convert to
-  MP3 on completed non-MP3 files.
+  (force-start, jumps the queue), and Retry on errored tasks.
 - **Resumable** - queue state persists in SQLite, partial downloads resume
   via aria2's control files. Closing the app does not lose work.
-- **Convert to MP3** - check "Convert to MP3 after download" when adding a
-  download, or right-click any completed file later. Runs `ffmpeg`
-  (must be on `PATH`) with `libmp3lame`, keeps metadata, tags a
-  `Source: <url>` comment, and never overwrites an existing file.
 - **HLS / M3U8 stream downloads** - any URL ending in `.m3u8` is
   automatically routed through an `ffmpeg`-backed downloader instead of
   aria2, no configuration needed. Pause/resume aren't available for these
@@ -266,7 +261,6 @@ cove-download-manager/
 │   ├── aria2.py                 #   aria2c lifecycle + JSON-RPC client
 │   ├── clipboard.py             #   URL extractor for "Add from clipboard"
 │   ├── config.py                #   JSON-backed Settings + ScheduleWindow
-│   ├── convert.py               #   post-download MP3 conversion via ffmpeg
 │   ├── db.py                    #   SQLite schema + connection helper
 │   ├── dialogs.py               #   Add / Schedule / Settings / batch picker
 │   ├── entry.py                 #   CLI entry point

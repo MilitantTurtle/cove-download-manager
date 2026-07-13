@@ -51,7 +51,6 @@ def test_queued_row_restores_without_attribute_error(tmp_path):
         task = _task_from_persisted_row(row)
     assert task.status == "queued"
     assert task.backend == "aria2"
-    assert task.convert_mp3 is False
 
 
 def test_active_row_restores_as_queued_for_repoll(tmp_path):
@@ -66,19 +65,18 @@ def test_active_row_restores_as_queued_for_repoll(tmp_path):
     assert task.status == "queued"
 
 
-def test_backend_and_convert_mp3_restored_when_present(tmp_path):
+def test_backend_restored_when_present(tmp_path):
     path = tmp_path / "cove.db"
     db.init(path)
     with db.connect(path) as conn:
-        row = _row(conn, status="paused", backend="hls", convert_mp3=1)
+        row = _row(conn, status="paused", backend="hls")
         task = _task_from_persisted_row(row)
     assert task.backend == "hls"
-    assert task.convert_mp3 is True
 
 
 def test_row_missing_optional_columns_uses_defaults(tmp_path):
-    """A DB predating the backend/convert_mp3 migrations (columns absent
-    entirely) must not crash and should fall back to safe defaults."""
+    """A DB predating the backend migration (column absent entirely) must
+    not crash and should fall back to safe defaults."""
     path = tmp_path / "cove.db"
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -104,4 +102,3 @@ def test_row_missing_optional_columns_uses_defaults(tmp_path):
     task = _task_from_persisted_row(row)
     conn.close()
     assert task.backend == "aria2"
-    assert task.convert_mp3 is False

@@ -92,10 +92,6 @@ class AddDownloadDialog(QDialog):
         form.addRow("Save to", row)
         layout.addLayout(form)
 
-        self.convert_mp3 = QCheckBox("Convert to MP3 after download")
-        self.convert_mp3.setChecked(False)
-        layout.addWidget(self.convert_mp3)
-
         layout.addWidget(_make_buttons(self, ok_text="Add"))
 
     def _browse(self) -> None:
@@ -112,9 +108,6 @@ class AddDownloadDialog(QDialog):
 
     def get_dir(self) -> str:
         return self.dir_edit.text().strip() or self.settings.download_dir
-
-    def get_convert_mp3(self) -> bool:
-        return self.convert_mp3.isChecked()
 
 
 class ClipboardBatchDialog(QDialog):
