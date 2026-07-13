@@ -12,6 +12,7 @@ const DEFAULT_EXTENSIONS = [
 ];
 
 const enabledCheckbox = document.getElementById("enabled");
+const mediaPillEnabledCheckbox = document.getElementById("media-pill-enabled");
 const minSizeInput = document.getElementById("min-size");
 const minSizeUnit = document.getElementById("min-size-unit");
 const extensionsTextarea = document.getElementById("extensions");
@@ -26,6 +27,7 @@ async function loadSettings() {
   const s = await browser.runtime.sendMessage({ type: "getSettings" });
 
   enabledCheckbox.checked = s.enabled;
+  mediaPillEnabledCheckbox.checked = s.mediaPillEnabled !== false;
   extensionsTextarea.value = (s.interceptExtensions || []).join(", ");
   excludedDomainsTextarea.value = (s.excludedDomains || []).join("\n");
 
@@ -45,6 +47,7 @@ async function loadSettings() {
 saveBtn.addEventListener("click", async () => {
   const newSettings = {
     enabled: enabledCheckbox.checked,
+    mediaPillEnabled: mediaPillEnabledCheckbox.checked,
     minSizeBytes: parseInt(minSizeInput.value) * parseInt(minSizeUnit.value),
     interceptExtensions: extensionsTextarea.value
       .split(",")

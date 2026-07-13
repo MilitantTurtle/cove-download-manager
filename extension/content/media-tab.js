@@ -26,6 +26,11 @@
   // Chrome has no webRequest detection and this stays empty).
   let detectedStreams = [];
 
+  // Whether the in-page pill is allowed to show. Defaults to true so the
+  // pill behaves as before until settings are read, and stays true if the
+  // read fails (fail open, matching current shipped behavior).
+  let pillEnabled = true;
+
   let host = null;
   let pill = null;
   let label = null;
@@ -122,6 +127,7 @@
   }
 
   function showPill(video, url) {
+    if (!pillEnabled) return;
     ensurePill();
     currentUrl = url;
     const last = sentUrls.get(url);
@@ -164,6 +170,7 @@
   // ---- Click -> one explicit download request ----
 
   function onPillClick() {
+    if (!pillEnabled) return;
     const url = currentUrl;
     if (!url) return;
     const last = sentUrls.get(url);
@@ -220,6 +227,40 @@
     },
     true
   );
+
+  // ---- Pill enable/disable via settings ----
+
+  function disablePill() {
+    pillEnabled = false;
+    cancelHide();
+    if (resetTimer) {
+      clearTimeout(resetTimer);
+      resetTimer = null;
+    }
+    hidePill();
+  }
+
+  function enablePill() {
+    pillEnabled = true;
+  }
+
+  Promise.resolve(browser.runtime.sendMessage({ type: "getSettings" }))
+    .then((s) => {
+      if (s && s.mediaPillEnabled === false) disablePill();
+    })
+    .catch(() => {
+      // Settings unreachable; stay enabled (fail open).
+    });
+
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes.settings) return;
+    const newValue = changes.settings.newValue || {};
+    if (newValue.mediaPillEnabled === false) {
+      disablePill();
+    } else {
+      enablePill();
+    }
+  });
 
   // ---- Detected-stream sync with background (top frame only) ----
 

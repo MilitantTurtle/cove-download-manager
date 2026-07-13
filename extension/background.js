@@ -28,6 +28,7 @@ const DEFAULT_SETTINGS = {
     ".deb", ".rpm", ".appimage",
   ],
   excludedDomains: [],
+  mediaPillEnabled: true,
 };
 
 let settings = { ...DEFAULT_SETTINGS };
