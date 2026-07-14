@@ -257,7 +257,8 @@ jobs:
           Copy-Item tools/cove-api/cove_api.py $clientStage/
           Copy-Item tools/cove-api/wrapper_config.json $clientStage/
           Copy-Item tools/cove-api/README.md $clientStage/
-          Copy-Item tools/cove-api/CODEX_PERSONALISATION.md $clientStage/
+          Copy-Item tools/cove-api/AI_WRAPPER_OPERATING_RULES.md $clientStage/
+          Copy-Item tools/cove-api/AI_DIRECT_API_OPERATING_RULES.md $clientStage/
           Compress-Archive -Path "$clientStage/*" -DestinationPath "release/Cove-AI-Client-$version.zip" -Force
           Get-ChildItem release | Format-Table -AutoSize
 

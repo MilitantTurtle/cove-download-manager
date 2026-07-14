@@ -1,4 +1,4 @@
-# Cove AI wrapper
+# Cove local API command-line client
 
 This is the dependency-free command-line client for Cove Download Manager's
 official, versioned local API. It is not a proxy: file bytes travel directly
@@ -6,6 +6,20 @@ between Cove's transfer backend and the remote server.
 
 Every command prints exactly one JSON object. The distinct API token is read
 from Cove's settings and is never included in output.
+
+## AI operating instructions
+
+- [`AI_WRAPPER_OPERATING_RULES.md`](AI_WRAPPER_OPERATING_RULES.md) is a
+  ready-to-use instruction set for agents that run this command-line client.
+- [`AI_DIRECT_API_OPERATING_RULES.md`](AI_DIRECT_API_OPERATING_RULES.md) is a
+  separate instruction set for agents with a trusted local HTTP integration
+  that calls Cove's native API directly.
+
+The wrapper is usually the better interface for smaller local models because
+it reduces the operation to a small command vocabulary and handles Cove
+startup, settings discovery, authentication, validation, and stable JSON
+output. Direct API access is useful when an agent host already provides those
+capabilities reliably.
 
 ## Requirements
 

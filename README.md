@@ -206,6 +206,12 @@ can start Cove when it is offline and emits one stable JSON object per command.
 Integer Cove `task_id` values are the authoritative control identifiers; an
 aria2 `gid` may be null while a task is queued or launching.
 
+Ready-to-use AI instruction sets are provided for both the
+[`command-line wrapper`](tools/cove-api/AI_WRAPPER_OPERATING_RULES.md) and
+[`direct native API access`](tools/cove-api/AI_DIRECT_API_OPERATING_RULES.md).
+The direct option expects the host integration to start Cove and inject the
+bearer token as a secret rather than exposing it to the model.
+
 ---
 
 ## Usage

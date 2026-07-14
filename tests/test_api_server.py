@@ -443,5 +443,14 @@ def test_windows_packaging_explicitly_includes_api_server_and_client():
     workflow_text = workflow.read_text(encoding="utf-8")
     assert workflow_text.count("--hidden-import cove.api_server") == 2
     assert "Cove-AI-Client-${{ steps.ver.outputs.version }}.zip" in workflow_text
-    for name in ("cove_api.py", "cove-api.cmd", "wrapper_config.json", "README.md"):
+    for name in (
+        "cove_api.py",
+        "cove-api.cmd",
+        "wrapper_config.json",
+        "README.md",
+        "AI_WRAPPER_OPERATING_RULES.md",
+        "AI_DIRECT_API_OPERATING_RULES.md",
+    ):
         assert (root / "tools" / "cove-api" / name).is_file()
+        assert name in native_script.read_text(encoding="utf-8")
+        assert name in workflow_text

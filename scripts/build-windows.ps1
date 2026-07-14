@@ -128,7 +128,7 @@ if ($Setup) {
 
 $ClientStage = Join-Path $WorkRoot "cove-api"
 New-Item -ItemType Directory -Force -Path $ClientStage | Out-Null
-foreach ($name in @("cove-api.cmd", "cove_api.py", "wrapper_config.json", "README.md", "CODEX_PERSONALISATION.md")) {
+foreach ($name in @("cove-api.cmd", "cove_api.py", "wrapper_config.json", "README.md", "AI_WRAPPER_OPERATING_RULES.md", "AI_DIRECT_API_OPERATING_RULES.md")) {
     Copy-Item -LiteralPath (Join-Path $Root "tools\cove-api\$name") -Destination $ClientStage -Force
 }
 $ClientZip = Join-Path $Root "release\Cove-AI-Client-$Version.zip"
