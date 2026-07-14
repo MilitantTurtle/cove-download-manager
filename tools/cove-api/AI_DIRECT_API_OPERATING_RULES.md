@@ -60,7 +60,7 @@ Field rules:
   expected filename. For Hugging Face `/resolve/` URLs, use the basename from
   the original URL to prevent a Xet/CAS content-hash filename. Never invent an
   ambiguous filename.
-- `connections` is optional and must be an integer from 1 through 32. Omit it
+- `connections` is optional and must be an integer from 1 through 16. Omit it
   to use Cove's current per-download default. It does not control how many
   downloads run concurrently.
 - `speed_limit_kbps` is optional and must be a non-negative integer. Zero means

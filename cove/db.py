@@ -2,7 +2,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-from .config import DB_FILE
+from .config import DB_FILE, MAX_CONNECTIONS_PER_SERVER
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS downloads (
@@ -39,6 +39,11 @@ _MIGRATIONS = [
     # v2 -> v3: add convert_mp3 flag for post-download MP3 conversion
     [
         "ALTER TABLE downloads ADD COLUMN convert_mp3 INTEGER DEFAULT 0",
+    ],
+    # v3 -> v4: stock aria2 rejects more than 16 connections to one server
+    [
+        f"UPDATE downloads SET connections={MAX_CONNECTIONS_PER_SERVER} "
+        f"WHERE connections < 1 OR connections > {MAX_CONNECTIONS_PER_SERVER}",
     ],
 ]
 

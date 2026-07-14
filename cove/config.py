@@ -20,6 +20,8 @@ ARIA2_SESSION = DATA_DIR / "aria2.session"
 ARIA2_LOG = DATA_DIR / "aria2.log"
 DEFAULT_DOWNLOAD_DIR = Path.home() / "Downloads"
 DEFAULT_API_PORT = 17681
+# Stock aria2 validates --max-connection-per-server in the range 1-16.
+MAX_CONNECTIONS_PER_SERVER = 16
 
 # Legacy default. Anything matching this on load is upgraded to a fresh
 # random secret so existing installs stop using the predictable token.
@@ -36,7 +38,7 @@ class ScheduleWindow:
     days: List[int] = field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])
 
 
-CONNECTION_CHOICES = (1, 2, 4, 8, 16, 24, 32)
+CONNECTION_CHOICES = (1, 2, 4, 8, MAX_CONNECTIONS_PER_SERVER)
 
 CATEGORY_NAMES = ("Documents", "Videos", "Music", "Archives", "Programs", "Images")
 
@@ -176,6 +178,16 @@ class Settings:
             changed = True
         if s.speed_limit_unit not in ("KB/s", "MB/s"):
             s.speed_limit_unit = "KB/s"
+            changed = True
+        if (
+            isinstance(s.connections_per_server, bool)
+            or not isinstance(s.connections_per_server, int)
+            or s.connections_per_server < 1
+        ):
+            s.connections_per_server = MAX_CONNECTIONS_PER_SERVER
+            changed = True
+        elif s.connections_per_server > MAX_CONNECTIONS_PER_SERVER:
+            s.connections_per_server = MAX_CONNECTIONS_PER_SERVER
             changed = True
         if changed:
             s.save()

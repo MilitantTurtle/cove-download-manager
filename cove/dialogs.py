@@ -59,7 +59,7 @@ def _title_block(layout: QVBoxLayout, title: str, subtitle: str | None = None) -
 
 
 def _make_connections_combo(current: int) -> QComboBox:
-    """IDM-style connections dropdown (1, 2, 4, 8, 16, 24, 32)."""
+    """Connections dropdown capped to stock aria2's per-server maximum."""
     combo = QComboBox()
     for n in CONNECTION_CHOICES:
         combo.addItem(str(n), n)

@@ -131,7 +131,7 @@ class AddCommandTests(unittest.TestCase):
             config = {
                 "allowed_download_roots": [root],
                 "allow_cove_default_directory": True,
-                "max_connections": 32,
+                "max_connections": 16,
             }
 
             class FakeClient:
@@ -166,6 +166,37 @@ class AddCommandTests(unittest.TestCase):
             payload = client.calls[0][2]
             self.assertNotIn("directory", payload)
             self.assertNotIn("connections", payload)
+
+    def test_add_rejects_more_than_stock_aria2_limit(self):
+        with tempfile.TemporaryDirectory() as root:
+            settings = cove_api.LoadedSettings(
+                Path(root) / "settings.json",
+                {
+                    "download_dir": root,
+                    "connections_per_server": 16,
+                    "api_port": 17681,
+                    "api_token": "x" * 43,
+                },
+            )
+            args = SimpleNamespace(
+                url="https://example.com/file.bin",
+                directory=None,
+                name=None,
+                connections=17,
+                speed_limit_kbps=None,
+                create_directory=False,
+            )
+
+            with self.assertRaises(cove_api.CoveApiError) as caught:
+                cove_api.command_add(
+                    args,
+                    SimpleNamespace(),
+                    settings,
+                    {"max_connections": 32},
+                )
+
+            self.assertEqual(caught.exception.code, "invalid_connections")
+            self.assertIn("between 1 and 16", caught.exception.message)
 
 
 class CoveStartupTests(unittest.TestCase):

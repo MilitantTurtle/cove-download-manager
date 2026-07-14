@@ -166,6 +166,7 @@ def test_rejects_wrong_content_type_malformed_and_oversized_json(api_server):
         ({"url": "https://example.com/a", "filename": "../a"}, "invalid_filename"),
         ({"url": "https://example.com/a", "directory": "relative"}, "directory_not_absolute"),
         ({"url": "https://example.com/a", "connections": 0}, "invalid_connections"),
+        ({"url": "https://example.com/a", "connections": 17}, "invalid_connections"),
         ({"url": "https://example.com/a", "connections": True}, "invalid_connections"),
         ({"url": "https://example.com/a", "create_directory": True}, "invalid_create_directory"),
         ({"url": "https://example.com/a", "surprise": 1}, "unknown_fields"),
@@ -415,6 +416,7 @@ def test_settings_migration_repairs_invalid_api_types(tmp_path, monkeypatch):
                 "api_port": True,
                 "api_enabled": "yes",
                 "speed_limit_unit": "GB/s",
+                "connections_per_server": 32,
             }
         )
     )
@@ -427,10 +429,13 @@ def test_settings_migration_repairs_invalid_api_types(tmp_path, monkeypatch):
     assert settings.api_port == config.DEFAULT_API_PORT
     assert settings.api_enabled is True
     assert settings.speed_limit_unit == "KB/s"
+    assert settings.connections_per_server == config.MAX_CONNECTIONS_PER_SERVER
+    assert max(config.CONNECTION_CHOICES) == config.MAX_CONNECTIONS_PER_SERVER
     persisted = json.loads(settings_path.read_text())
     assert persisted["api_port"] == config.DEFAULT_API_PORT
     assert persisted["api_enabled"] is True
     assert persisted["speed_limit_unit"] == "KB/s"
+    assert persisted["connections_per_server"] == config.MAX_CONNECTIONS_PER_SERVER
 
 
 def test_windows_packaging_explicitly_includes_api_server_and_client():

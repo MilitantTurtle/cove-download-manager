@@ -19,7 +19,7 @@ from PySide6.QtCore import QObject, QProcess, QRunnable, QThreadPool, QTimer, Si
 
 from . import db
 from .aria2 import Aria2Error, Aria2RPC
-from .config import Settings
+from .config import MAX_CONNECTIONS_PER_SERVER, Settings
 
 URL_RE = re.compile(r"https?://\S+|ftp://\S+|magnet:\?\S+")
 
@@ -368,6 +368,9 @@ class QueueManager(QObject):
             category = categorize(url)
         effective_connections = (
             self.settings.connections_per_server if connections is None else connections
+        )
+        effective_connections = min(
+            max(int(effective_connections), 1), MAX_CONNECTIONS_PER_SERVER
         )
         if out_dir:
             dest_dir = out_dir

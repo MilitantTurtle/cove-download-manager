@@ -20,7 +20,13 @@ from typing import Any, Iterable
 
 import requests
 
-from .config import ARIA2_LOG, ARIA2_SESSION, DATA_DIR, Settings
+from .config import (
+    ARIA2_LOG,
+    ARIA2_SESSION,
+    DATA_DIR,
+    MAX_CONNECTIONS_PER_SERVER,
+    Settings,
+)
 
 
 class Aria2Error(RuntimeError):
@@ -113,6 +119,10 @@ class Aria2Daemon:
             raise Aria2Error(f"aria2c not found. {hint}")
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         ARIA2_SESSION.touch(exist_ok=True)
+        connections = min(
+            max(int(self.settings.connections_per_server), 1),
+            MAX_CONNECTIONS_PER_SERVER,
+        )
         args = [
             aria2c,
             "--enable-rpc",
@@ -121,8 +131,8 @@ class Aria2Daemon:
             f"--rpc-secret={self.settings.rpc_secret}",
             "--rpc-listen-all=false",
             "--rpc-allow-origin-all=false",
-            f"--max-connection-per-server={self.settings.connections_per_server}",
-            f"--split={self.settings.connections_per_server}",
+            f"--max-connection-per-server={connections}",
+            f"--split={connections}",
             "--min-split-size=1M",
             "--continue=true",
             "--allow-overwrite=false",
@@ -261,6 +271,7 @@ class Aria2RPC:
         filename: str | None = None,
         headers: list[str] | None = None,
     ) -> str:
+        connections = min(max(int(connections), 1), MAX_CONNECTIONS_PER_SERVER)
         opts: dict[str, str] = {
             "dir": out_dir,
             "split": str(connections),

@@ -3,7 +3,7 @@ import threading
 from unittest.mock import MagicMock, patch
 
 from cove.aria2 import Aria2Daemon, Aria2RPC, MAX_CONCURRENT_DOWNLOADS
-from cove.config import Settings
+from cove.config import MAX_CONNECTIONS_PER_SERVER, Settings
 
 
 def test_daemon_lifts_max_concurrent_downloads():
@@ -19,6 +19,21 @@ def test_daemon_lifts_max_concurrent_downloads():
     args = popen.call_args[0][0]
     assert f"--max-concurrent-downloads={MAX_CONCURRENT_DOWNLOADS}" in args
     assert MAX_CONCURRENT_DOWNLOADS > 5
+
+
+def test_daemon_caps_per_server_connections_for_stock_aria2():
+    settings = Settings(connections_per_server=32)
+    daemon = Aria2Daemon(settings)
+    with patch("cove.aria2._resolve_aria2c", return_value="aria2c"), \
+         patch("cove.aria2.DATA_DIR", MagicMock()), \
+         patch("cove.aria2.ARIA2_SESSION", MagicMock()), \
+         patch("cove.aria2.subprocess.Popen") as popen, \
+         patch.object(Aria2RPC, "get_version", return_value={"version": "1.37"}):
+        daemon.start()
+
+    args = popen.call_args[0][0]
+    assert f"--max-connection-per-server={MAX_CONNECTIONS_PER_SERVER}" in args
+    assert f"--split={MAX_CONNECTIONS_PER_SERVER}" in args
 
 
 def _rpc() -> Aria2RPC:

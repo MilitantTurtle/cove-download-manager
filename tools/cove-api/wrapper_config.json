@@ -5,6 +5,6 @@
   "allow_any_absolute_directory": true,
   "allowed_download_roots": [],
   "allow_cove_default_directory": true,
-  "max_connections": 32,
+  "max_connections": 16,
   "api_timeout_seconds": 10
 }

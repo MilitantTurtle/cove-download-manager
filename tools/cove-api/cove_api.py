@@ -26,6 +26,7 @@ from urllib.parse import urlsplit
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = APP_DIR / "wrapper_config.json"
 ALLOWED_SCHEMES = {"http", "https", "ftp", "magnet"}
+MAX_CONNECTIONS_PER_SERVER = 16
 WINDOWS_RESERVED_NAMES = {
     "CON",
     "PRN",
@@ -160,7 +161,7 @@ def load_wrapper_config(path: str | None = None) -> tuple[Path, dict[str, Any]]:
         "allow_any_absolute_directory": True,
         "allowed_download_roots": [str(APP_DIR.parent)],
         "allow_cove_default_directory": True,
-        "max_connections": 32,
+        "max_connections": MAX_CONNECTIONS_PER_SERVER,
         "api_timeout_seconds": 10,
     }
     if not selected.is_file():
@@ -558,8 +559,10 @@ def command_add(
             "--create-directory requires --directory.",
             exit_code=5,
         )
-    configured_max = _as_int(config.get("max_connections"), 32)
-    hard_max = min(max(configured_max, 1), 32)
+    configured_max = _as_int(
+        config.get("max_connections"), MAX_CONNECTIONS_PER_SERVER
+    )
+    hard_max = min(max(configured_max, 1), MAX_CONNECTIONS_PER_SERVER)
     connections = args.connections
     if connections is not None and not 1 <= connections <= hard_max:
         raise CoveApiError(

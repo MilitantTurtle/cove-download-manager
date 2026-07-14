@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 
 from . import __version__
-from .config import Settings
+from .config import MAX_CONNECTIONS_PER_SERVER, Settings
 from .queue import DownloadTask, QueueManager
 
 API_PREFIX = "/api/v1"
@@ -117,8 +117,16 @@ def validate_directory(value: Any, create: bool) -> str | None:
 def validate_connections(value: Any) -> int | None:
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 32:
-        raise _problem(400, "invalid_connections", "Connections must be an integer between 1 and 32.")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 1 <= value <= MAX_CONNECTIONS_PER_SERVER
+    ):
+        raise _problem(
+            400,
+            "invalid_connections",
+            f"Connections must be an integer between 1 and {MAX_CONNECTIONS_PER_SERVER}.",
+        )
     return value
 
 

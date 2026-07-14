@@ -29,7 +29,7 @@ Use Cove Download Manager only through its official `cove-api.cmd` client.
    `--directory "PATH"`. If the folder does not exist, add
    `--create-directory` only when creating that requested folder is intended.
 7. `--connections N` controls connections for that individual download and
-   accepts an integer from 1 through 32. It does not control the number of
+   accepts an integer from 1 through 16. It does not control the number of
    downloads running concurrently.
 8. Preserve the returned integer `task_id`. It is Cove's authoritative
    identifier for `status`, `pause`, `resume`, and `cancel`. The nullable `gid`
