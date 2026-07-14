@@ -7,7 +7,7 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
 ![Python](https://img.shields.io/badge/python-3.10%2B-orange?style=flat-square&logo=python)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux-informational?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/release-v1.8.0-5eead4?style=flat-square)
+![Version](https://img.shields.io/badge/release-v1.9.0-5eead4?style=flat-square)
 
 ![Cove Download Manager](docs/screenshot.png)
 
@@ -53,6 +53,8 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
 - **Browser extension** - intercept downloads from Firefox, Chrome, and
   their derivatives (Zen, LibreWolf, Edge, Brave, and more). See
   [Browser Extension](#browser-extension).
+- **Official local API** - authenticated loopback API plus an optional
+  command-line client designed for AI agents and local automation.
 - **In-page video pill** - hover a video on any page and a floating
   "Download with Cove" pill appears; one click sends the media to Cove.
   Direct MP4/WebM everywhere, detected HLS (M3U8) streams on Firefox.
@@ -66,7 +68,7 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
 
 ### Linux - AppImage
 
-Download the latest [`Cove-Download-Manager-<version>-x86_64.AppImage`](https://github.com/Sin213/cove-download-manager/releases/latest)
+Download the latest [`Cove-Download-Manager-<version>-x86_64.AppImage`](https://github.com/MilitantTurtle/cove-download-manager/releases/latest)
 from the Releases page.
 
 ```bash
@@ -88,7 +90,7 @@ The `.deb` declares `Depends: aria2`, so apt pulls it in for you.
 
 ### Windows
 
-Two builds on the [Releases](https://github.com/Sin213/cove-download-manager/releases/latest) page:
+Two builds on the [Releases](https://github.com/MilitantTurtle/cove-download-manager/releases/latest) page:
 
 - **`Cove-Download-Manager-<version>-Setup.exe`** - Inno Setup installer,
   per-user (no admin prompt), Start Menu + optional desktop shortcut.
@@ -206,11 +208,51 @@ can start Cove when it is offline and emits one stable JSON object per command.
 Integer Cove `task_id` values are the authoritative control identifiers; an
 aria2 `gid` may be null while a task is queued or launching.
 
-Ready-to-use AI instruction sets are provided for both the
-[`command-line wrapper`](tools/cove-api/AI_WRAPPER_OPERATING_RULES.md) and
-[`direct native API access`](tools/cove-api/AI_DIRECT_API_OPERATING_RULES.md).
-The direct option expects the host integration to start Cove and inject the
-bearer token as a secret rather than exposing it to the model.
+### Give an AI access
+
+Choose one integration method. The command-line wrapper is recommended for
+small local models because it handles startup, settings discovery,
+authentication, validation, and predictable JSON. Direct HTTP access is best
+when the AI host already has a trusted secret-injection and HTTP-tool layer.
+
+#### Option 1: command-line wrapper (recommended)
+
+1. Download `Cove-AI-Client-<version>.zip` from this repository's release and
+   extract it locally.
+2. Launch Cove once. If the client is not beside Cove, set `cove_executable`
+   in `wrapper_config.json`; pass `--settings` when settings are not discovered
+   automatically.
+3. Give the AI the complete
+   [`AI_WRAPPER_OPERATING_RULES.md`](tools/cove-api/AI_WRAPPER_OPERATING_RULES.md)
+   file as operating instructions and allow it to run `cove-api.cmd`.
+4. The AI runs `health`, then `add`, preserves the returned integer `task_id`,
+   and uses that ID with `status`, `pause`, `resume`, or `cancel`.
+
+```powershell
+cove-api.cmd health
+cove-api.cmd add "https://example.com/file.zip" --directory "D:\Downloads" --connections 8
+cove-api.cmd status 123
+```
+
+The wrapper reads the API credential from Cove's settings itself. Do not copy
+the credential into the prompt. See the
+[`command-line client guide`](tools/cove-api/README.md) for settings discovery,
+signed URLs, filenames, directories, and exit behavior.
+
+#### Option 2: direct local API
+
+1. The trusted host integration starts Cove and checks `GET /api/v1/health`.
+2. Outside the model, the host reads Cove's `api_token` and injects it as the
+   `Authorization: Bearer <token>` header for authenticated requests.
+3. Give the AI the complete
+   [`AI_DIRECT_API_OPERATING_RULES.md`](tools/cove-api/AI_DIRECT_API_OPERATING_RULES.md)
+   file and expose a local HTTP tool configured for Cove's base URL.
+4. The AI calls `POST /api/v1/downloads`, preserves
+   `download.task_id`, and polls `GET /api/v1/downloads/{task_id}`.
+
+The bearer token must remain in the host's secret store: the AI should never
+read, print, log, or request it. Both methods support URL, absolute destination,
+safe filename, 1-16 connections, and per-download speed limit overrides.
 
 ---
 
@@ -263,7 +305,7 @@ PyInstaller, Pillow, and an `aria2c.exe` path. The older Wine script remains
 available for Linux cross-build environments.
 
 ```bash
-git clone https://github.com/Sin213/cove-download-manager
+git clone https://github.com/MilitantTurtle/cove-download-manager
 cd cove-download-manager
 
 # Run from source

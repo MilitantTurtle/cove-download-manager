@@ -128,7 +128,7 @@ Installed-Size: $INSTALLED_SIZE
 Depends: aria2
 Section: net
 Priority: optional
-Homepage: https://github.com/Sin213/cove-download-manager
+Homepage: https://github.com/MilitantTurtle/cove-download-manager
 Description: Multi-connection download manager
  Cove Download Manager is a Qt6 download manager built on top of aria2.
  It supports up to 64 connections per file, a configurable concurrent

@@ -49,4 +49,4 @@ do not use it for creditworthiness or lending purposes.
 ## Contact
 
 Questions: open an issue at
-https://github.com/Sin213/cove-download-manager/issues
+https://github.com/MilitantTurtle/cove-download-manager/issues

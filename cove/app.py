@@ -28,7 +28,7 @@ from .updater import UpdateController
 from .native_host_install import install_native_hosts
 from .widgets import find_icon
 
-UPDATE_REPO = "Sin213/cove-download-manager"
+UPDATE_REPO = "MilitantTurtle/cove-download-manager"
 
 
 def _apply_palette(app: QApplication) -> None:
