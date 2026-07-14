@@ -18,9 +18,17 @@ from cove.config import Settings
 from cove.dialogs import SettingsDialog
 
 app = QApplication([])
-dialog = SettingsDialog(Settings())
+dialog = SettingsDialog(Settings(
+    overall_speed_limit_kbps=1536,
+    speed_limiter_enabled=True,
+    speed_limit_unit="MB/s",
+))
 dialog.resize(dialog.width(), 360)
 dialog.show()
+app.processEvents()
+initial_speed_value = dialog.speed_limit.value()
+dialog.speed_limit.setValue(2.5)
+dialog.speed_unit.setCurrentText("KB/s")
 app.processEvents()
 print(json.dumps({
     "height": dialog.height(),
@@ -30,6 +38,11 @@ print(json.dumps({
     "scroll_maximum": dialog.settings_scroll.verticalScrollBar().maximum(),
     "outer_layout_count": dialog.layout().count(),
     "scroll_in_outer_layout": dialog.layout().indexOf(dialog.settings_scroll) >= 0,
+    "initial_speed_value": initial_speed_value,
+    "converted_speed_value": dialog.speed_limit.value(),
+    "speed_units": [dialog.speed_unit.itemText(i) for i in range(dialog.speed_unit.count())],
+    "speed_enabled_text": dialog.speed_enabled.text(),
+    "speed_enabled": dialog.speed_enabled.isChecked(),
 }))
 dialog.close()
 '''
@@ -54,3 +67,8 @@ dialog.close()
     # reachable even when the form is scrolled on a short display.
     assert metrics["scroll_in_outer_layout"] is True
     assert metrics["outer_layout_count"] == 4
+    assert metrics["initial_speed_value"] == 1.5
+    assert metrics["converted_speed_value"] == 2560
+    assert metrics["speed_units"] == ["KB/s", "MB/s"]
+    assert metrics["speed_enabled_text"] == "Enable speed limiter"
+    assert metrics["speed_enabled"] is True

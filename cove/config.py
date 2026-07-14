@@ -102,6 +102,7 @@ class Settings:
     max_concurrent: int = 1
     overall_speed_limit_kbps: int = 0
     speed_limiter_enabled: bool = False
+    speed_limit_unit: str = "KB/s"
     time_format_24h: bool = False  # default: 12-hour with AM/PM
     auto_update_check: bool = True
     delete_completed_on_exit: bool = False
@@ -141,6 +142,7 @@ class Settings:
             s.api_token = _new_distinct_api_token(s.rpc_secret)
             s.save()
             return s
+        speed_limit_unit_missing = "speed_limit_unit" not in raw
         sched = ScheduleWindow(**raw.pop("schedule", {})) if "schedule" in raw else ScheduleWindow()
         cat = CategoryDirs(**raw.pop("category_dirs", {})) if "category_dirs" in raw else CategoryDirs()
         s = cls(**{k: v for k, v in raw.items() if k in cls.__annotations__})
@@ -149,7 +151,7 @@ class Settings:
         if s.theme not in ("dark", "light"):
             s.theme = "dark"
         # Migrate legacy / empty / suspiciously-short secrets up to a real one.
-        changed = False
+        changed = speed_limit_unit_missing
         if (
             not isinstance(s.rpc_secret, str)
             or not s.rpc_secret
@@ -171,6 +173,9 @@ class Settings:
             changed = True
         if not isinstance(s.api_enabled, bool):
             s.api_enabled = True
+            changed = True
+        if s.speed_limit_unit not in ("KB/s", "MB/s"):
+            s.speed_limit_unit = "KB/s"
             changed = True
         if changed:
             s.save()

@@ -399,6 +399,7 @@ def test_settings_migration_creates_distinct_api_token_without_changing_rpc_secr
     persisted = json.loads(settings_path.read_text())
     assert persisted["rpc_secret"] == rpc_secret
     assert persisted["api_token"] == settings.api_token
+    assert persisted["speed_limit_unit"] == "KB/s"
 
 
 def test_settings_migration_repairs_invalid_api_types(tmp_path, monkeypatch):
@@ -413,6 +414,7 @@ def test_settings_migration_repairs_invalid_api_types(tmp_path, monkeypatch):
                 "api_token": "t" * 43,
                 "api_port": True,
                 "api_enabled": "yes",
+                "speed_limit_unit": "GB/s",
             }
         )
     )
@@ -424,9 +426,11 @@ def test_settings_migration_repairs_invalid_api_types(tmp_path, monkeypatch):
 
     assert settings.api_port == config.DEFAULT_API_PORT
     assert settings.api_enabled is True
+    assert settings.speed_limit_unit == "KB/s"
     persisted = json.loads(settings_path.read_text())
     assert persisted["api_port"] == config.DEFAULT_API_PORT
     assert persisted["api_enabled"] is True
+    assert persisted["speed_limit_unit"] == "KB/s"
 
 
 def test_windows_packaging_explicitly_includes_api_server_and_client():

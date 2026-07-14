@@ -21,3 +21,10 @@ def test_qss_builds_for_both_themes():
         assert theme.BG in qss
         assert theme.TEXT in qss
     theme.set_theme("dark")
+
+
+def test_double_spin_boxes_receive_complete_input_styling():
+    qss = theme._build_qss()
+    assert "QSpinBox, QDoubleSpinBox," in qss
+    assert "QSpinBox:focus, QDoubleSpinBox:focus" in qss
+    assert "QDoubleSpinBox::up-button, QDoubleSpinBox::down-button" in qss

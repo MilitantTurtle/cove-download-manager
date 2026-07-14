@@ -36,6 +36,8 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -65,6 +67,11 @@ from .dialogs import (
 )
 from .queue import DownloadTask, QueueManager
 from .scheduler import Scheduler
+from .speed_limit import (
+    SPEED_LIMIT_UNITS,
+    configure_speed_spin,
+    speed_value_to_kbps,
+)
 from .system_open import child_env
 from .widgets import (
     Footer,
@@ -492,16 +499,22 @@ class MainWindow(QMainWindow):
 
         # Speed cap
         sec_speed = Section("Global speed limit")
-        # Header row: spinbox + small (i) info badge.
+        # Header row: value, display unit, and small (i) info badge.
         head = QHBoxLayout()
         head.setSpacing(8)
-        self.speed_spin = QSpinBox()
-        self.speed_spin.setRange(0, 1_000_000)
-        self.speed_spin.setSuffix(" KB/s")
-        self.speed_spin.setSpecialValueText("Unlimited")
-        self.speed_spin.setValue(self.settings.overall_speed_limit_kbps)
+        self.speed_spin = QDoubleSpinBox()
+        self.speed_unit = QComboBox()
+        self.speed_unit.addItems(SPEED_LIMIT_UNITS)
+        self.speed_unit.setCurrentText(self.settings.speed_limit_unit)
+        configure_speed_spin(
+            self.speed_spin,
+            self.settings.speed_limit_unit,
+            self.settings.overall_speed_limit_kbps,
+        )
         self.speed_spin.valueChanged.connect(self._on_speed_value_changed)
+        self.speed_unit.currentTextChanged.connect(self._on_speed_unit_changed)
         head.addWidget(self.speed_spin, 1)
+        head.addWidget(self.speed_unit, 0)
 
         info = QLabel("i")
         info.setObjectName("infoBadge")
@@ -516,10 +529,9 @@ class MainWindow(QMainWindow):
         head.addWidget(info, 0)
         sec_speed.body().addLayout(head)
 
-        # Always-on-startup checkbox.
-        self.speed_always_on = QCheckBox("Always turn on Speed Limiter on startup")
+        self.speed_always_on = QCheckBox("Enable speed limiter")
         self.speed_always_on.setChecked(self.settings.speed_limiter_enabled)
-        self.speed_always_on.toggled.connect(self._on_speed_always_on_toggled)
+        self.speed_always_on.toggled.connect(self._on_speed_enabled_toggled)
         sec_speed.body().addWidget(self.speed_always_on)
 
         speed_hint = QLabel("Total downstream cap across all files.")
@@ -660,9 +672,17 @@ class MainWindow(QMainWindow):
             self.concurrent_spin.blockSignals(True)
             self.concurrent_spin.setValue(self.settings.max_concurrent)
             self.concurrent_spin.blockSignals(False)
-            self.speed_spin.blockSignals(True)
-            self.speed_spin.setValue(self.settings.overall_speed_limit_kbps)
-            self.speed_spin.blockSignals(False)
+            self.speed_unit.blockSignals(True)
+            self.speed_unit.setCurrentText(self.settings.speed_limit_unit)
+            self.speed_unit.blockSignals(False)
+            configure_speed_spin(
+                self.speed_spin,
+                self.settings.speed_limit_unit,
+                self.settings.overall_speed_limit_kbps,
+            )
+            self.speed_always_on.blockSignals(True)
+            self.speed_always_on.setChecked(self.settings.speed_limiter_enabled)
+            self.speed_always_on.blockSignals(False)
             self.queue.set_max_concurrent(self.settings.max_concurrent)
             self._apply_speed_limit()
             self._refresh_schedule_section()
@@ -684,12 +704,21 @@ class MainWindow(QMainWindow):
                 return
         self.queue.clear_completed(delete_files=delete_files)
 
-    def _on_speed_value_changed(self, value: int) -> None:
-        self.settings.overall_speed_limit_kbps = value
+    def _on_speed_value_changed(self, value: float) -> None:
+        self.settings.overall_speed_limit_kbps = speed_value_to_kbps(
+            value, self.speed_unit.currentText()
+        )
         self.settings.save()
         self._apply_speed_limit()
 
-    def _on_speed_always_on_toggled(self, checked: bool) -> None:
+    def _on_speed_unit_changed(self, unit: str) -> None:
+        self.settings.speed_limit_unit = unit
+        configure_speed_spin(
+            self.speed_spin, unit, self.settings.overall_speed_limit_kbps
+        )
+        self.settings.save()
+
+    def _on_speed_enabled_toggled(self, checked: bool) -> None:
         self.settings.speed_limiter_enabled = checked
         self.settings.save()
         self._apply_speed_limit()

@@ -375,7 +375,8 @@ QPushButton#iconBtn:hover {{
 
 /* Inputs --------------------------------------------------------- */
 
-QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox, QTimeEdit {{
+QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox,
+QComboBox, QTimeEdit {{
     background-color: {SURFACE_2};
     color: {TEXT};
     border: 1px solid {BORDER_HEX};
@@ -388,11 +389,12 @@ QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox, QTimeEdit {{
     font-size: 9.5pt;
 }}
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus,
-QSpinBox:focus, QComboBox:focus, QTimeEdit:focus {{
+QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QTimeEdit:focus {{
     border-color: {ACCENT};
     background-color: {SURFACE_3};
 }}
 QSpinBox::up-button, QSpinBox::down-button,
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button,
 QTimeEdit::up-button, QTimeEdit::down-button {{
     background-color: transparent;
     border: none;
