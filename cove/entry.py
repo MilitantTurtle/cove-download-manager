@@ -1,7 +1,8 @@
 """Single entry-point dispatch for every way Cove is launched.
 
-Both `python -m cove` (cove/__main__.py) and the frozen PyInstaller binary
-(packaging/launcher.py) MUST route through here.
+Both `python -m cove` (cove/__main__.py) and the frozen PyInstaller binaries
+(`packaging/launcher.py` and `packaging/portable_launcher.py`) MUST route
+through here.
 
 Why this exists: a browser starts the native messaging host by executing the
 registered command. If that command lands in the GUI instead of the stdio

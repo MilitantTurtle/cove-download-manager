@@ -89,7 +89,7 @@ $PortableWork = Join-Path $WorkRoot "portable-work"
     --name "cove-download-manager-portable" `
     --distpath $PortableDist `
     --workpath $PortableWork `
-    "packaging\launcher.py"
+    "packaging\portable_launcher.py"
 if ($LASTEXITCODE -ne 0) {
     throw "Portable PyInstaller build failed"
 }

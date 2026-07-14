@@ -105,7 +105,6 @@ COMMON_ARGS=(
     --exclude-module PySide6.QtMultimedia
     --exclude-module PySide6.QtMultimediaWidgets
     --exclude-module tkinter
-    packaging/launcher.py
 )
 
 # ---------------------------------------------------------------- 4. one-dir
@@ -114,7 +113,8 @@ wine "$WIN_PY" -m PyInstaller \
     --name "$APP" \
     --distpath "$ROOT/build/win-onedir/dist" \
     --workpath "$ROOT/build/win-onedir/work" \
-    "${COMMON_ARGS[@]}"
+    "${COMMON_ARGS[@]}" \
+    packaging/launcher.py
 
 ONEDIR="$ROOT/build/win-onedir/dist/$APP"
 [ -d "$ONEDIR" ] || { echo "onedir output missing: $ONEDIR"; exit 1; }
@@ -129,7 +129,8 @@ wine "$WIN_PY" -m PyInstaller \
     --onefile \
     --distpath "$ROOT/build/win-onefile/dist" \
     --workpath "$ROOT/build/win-onefile/work" \
-    "${COMMON_ARGS[@]}"
+    "${COMMON_ARGS[@]}" \
+    packaging/portable_launcher.py
 
 PORT_SRC="$ROOT/build/win-onefile/dist/$APP-portable.exe"
 [ -f "$PORT_SRC" ] || { echo "portable output missing: $PORT_SRC"; exit 1; }
