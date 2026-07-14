@@ -1,0 +1,10 @@
+{
+  "auto_start_cove": true,
+  "cove_executable": "",
+  "cove_startup_timeout_seconds": 30,
+  "allow_any_absolute_directory": true,
+  "allowed_download_roots": [],
+  "allow_cove_default_directory": true,
+  "max_connections": 32,
+  "api_timeout_seconds": 10
+}

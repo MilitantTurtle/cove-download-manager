@@ -180,9 +180,31 @@ pill.
 Portable builds keep everything in a `cove-app-data` folder next to the
 executable instead.
 
-Settings include a per-install random RPC token; on POSIX the file is written
+Settings include separate per-install random aria2 RPC and local API secrets;
+on POSIX the file is written
 with `0600` permissions so other local users can't read it (on Windows the
 file inherits the user profile's ACL).
+
+---
+
+## Official local API
+
+Cove starts a versioned HTTP API on `127.0.0.1:17681` by default. It is intended
+for first-party local automation and never listens on a LAN interface. Apart
+from the minimal `GET /api/v1/health` readiness check, endpoints require the
+distinct `api_token` as an `Authorization: Bearer` credential. Browser-origin
+requests and wildcard CORS are not accepted.
+
+The v1 endpoints add, list, inspect, pause, resume, and safely cancel downloads.
+Cancellation always maps to `QueueManager.remove(task_id, delete_file=False)`;
+there is no file-deletion endpoint. All task reads and mutations are marshalled
+onto the Qt main thread and use Cove's normal queue persistence, UI signals,
+and status transitions.
+
+The companion [`tools/cove-api/cove-api.cmd`](tools/cove-api/README.md) client
+can start Cove when it is offline and emits one stable JSON object per command.
+Integer Cove `task_id` values are the authoritative control identifiers; an
+aria2 `gid` may be null while a task is queued or launching.
 
 ---
 
@@ -229,11 +251,10 @@ binary unless its SHA-256 matches the published manifest.
 
 ## Build from source
 
-Requires Python 3.10+ on Linux; building Windows artifacts also needs
-`wine` and a wineprefix at `~/.wine-covebuild` with Python 3.12 +
-PyInstaller. The Windows path matches the rest of the cove tooling -
-the [cove-compressor build script](https://github.com/Sin213/cove-compressor/blob/main/scripts/build-windows-wine.sh)
-documents the wineprefix bootstrap.
+Running from source requires Python 3.10+. Windows artifacts are built natively
+by GitHub Actions and can also be built locally with PowerShell, Python 3.12,
+PyInstaller, Pillow, and an `aria2c.exe` path. The older Wine script remains
+available for Linux cross-build environments.
 
 ```bash
 git clone https://github.com/Sin213/cove-download-manager
@@ -249,11 +270,18 @@ pip install -r requirements.txt
 # Linux .deb (PyInstaller based)
 ./scripts/build-deb.sh
 
-# Windows Setup.exe + Portable.exe via Wine
+# Windows portable (native PowerShell)
+.\scripts\build-windows.ps1 -Python .\.buildenv\Scripts\python.exe -Aria2Exe C:\path\to\aria2c.exe
+
+# Windows Setup.exe too, when Inno Setup 6 is installed
+.\scripts\build-windows.ps1 -Python .\.buildenv\Scripts\python.exe -Aria2Exe C:\path\to\aria2c.exe -Setup
+
+# Windows cross-build from Linux via Wine
 ./scripts/build-windows-wine.sh
 ```
 
-All artifacts land in `release/`, each with a matching `.sha256` sidecar.
+Artifacts land in `release/` with matching `.sha256` sidecars. Windows builds
+also stage `Cove-AI-Client-<version>.zip`.
 
 ---
 

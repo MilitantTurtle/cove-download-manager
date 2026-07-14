@@ -338,7 +338,14 @@ class QueueManager(QObject):
         return self.settings.download_dir
 
     def add_url(
-        self, url: str, out_dir: str | None = None, convert_mp3: bool = False
+        self,
+        url: str,
+        out_dir: str | None = None,
+        convert_mp3: bool = False,
+        *,
+        filename: str | None = None,
+        connections: int | None = None,
+        speed_limit_kbps: int = 0,
     ) -> Optional[int]:
         url = url.strip()
         if not URL_RE.match(url):
@@ -354,11 +361,14 @@ class QueueManager(QObject):
                 self.error.emit("ffmpeg is required for HLS/M3U8 downloads")
                 return None
             path_part = urlparse(url).path.rsplit("/", 1)[-1]
-            filename = (path_part.rsplit(".", 1)[0] if "." in path_part else "stream") + ".mp4"
+            if not filename:
+                filename = (path_part.rsplit(".", 1)[0] if "." in path_part else "stream") + ".mp4"
             category = "Videos"
         else:
             category = categorize(url)
-            filename = None
+        effective_connections = (
+            self.settings.connections_per_server if connections is None else connections
+        )
         if out_dir:
             dest_dir = out_dir
         else:
@@ -374,8 +384,8 @@ class QueueManager(QObject):
                 (
                     url,
                     dest_dir,
-                    self.settings.connections_per_server,
-                    0,
+                    effective_connections,
+                    speed_limit_kbps,
                     "queued",
                     time.time(),
                     category,
@@ -389,9 +399,10 @@ class QueueManager(QObject):
             id=tid,
             url=url,
             out_dir=dest_dir,
-            connections=self.settings.connections_per_server,
+            connections=effective_connections,
+            speed_limit_kbps=speed_limit_kbps,
             backend=backend,
-            filename=filename if backend == "ffmpeg" else None,
+            filename=filename,
             convert_mp3=convert_mp3,
         )
         self.tasks[tid] = t

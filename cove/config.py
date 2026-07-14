@@ -19,6 +19,7 @@ DB_FILE = DATA_DIR / "cove.db"
 ARIA2_SESSION = DATA_DIR / "aria2.session"
 ARIA2_LOG = DATA_DIR / "aria2.log"
 DEFAULT_DOWNLOAD_DIR = Path.home() / "Downloads"
+DEFAULT_API_PORT = 17681
 
 # Legacy default. Anything matching this on load is upgraded to a fresh
 # random secret so existing installs stop using the predictable token.
@@ -82,6 +83,18 @@ def _new_rpc_secret() -> str:
     return secrets.token_urlsafe(24)
 
 
+def _new_api_token() -> str:
+    """Return a secret used only by Cove's first-party loopback API."""
+    return secrets.token_urlsafe(32)
+
+
+def _new_distinct_api_token(rpc_secret: str) -> str:
+    token = _new_api_token()
+    while token == rpc_secret:
+        token = _new_api_token()
+    return token
+
+
 @dataclass
 class Settings:
     download_dir: str = str(DEFAULT_DOWNLOAD_DIR)
@@ -106,6 +119,9 @@ class Settings:
     auto_sort_by_category: bool = False
     category_dirs: CategoryDirs = field(default_factory=CategoryDirs)
     schedule: ScheduleWindow = field(default_factory=ScheduleWindow)
+    api_enabled: bool = True
+    api_port: int = DEFAULT_API_PORT
+    api_token: str = ""  # distinct from rpc_secret; never returned by the API
 
     @classmethod
     def load(cls) -> "Settings":
@@ -114,6 +130,7 @@ class Settings:
         if not CONFIG_FILE.exists():
             s = cls()
             s.rpc_secret = _new_rpc_secret()
+            s.api_token = _new_distinct_api_token(s.rpc_secret)
             s.save()
             return s
         try:
@@ -121,6 +138,7 @@ class Settings:
         except (OSError, json.JSONDecodeError):
             s = cls()
             s.rpc_secret = _new_rpc_secret()
+            s.api_token = _new_distinct_api_token(s.rpc_secret)
             s.save()
             return s
         sched = ScheduleWindow(**raw.pop("schedule", {})) if "schedule" in raw else ScheduleWindow()
@@ -131,8 +149,30 @@ class Settings:
         if s.theme not in ("dark", "light"):
             s.theme = "dark"
         # Migrate legacy / empty / suspiciously-short secrets up to a real one.
-        if not s.rpc_secret or s.rpc_secret == _LEGACY_RPC_SECRET or len(s.rpc_secret) < 16:
+        changed = False
+        if (
+            not isinstance(s.rpc_secret, str)
+            or not s.rpc_secret
+            or s.rpc_secret == _LEGACY_RPC_SECRET
+            or len(s.rpc_secret) < 16
+        ):
             s.rpc_secret = _new_rpc_secret()
+            changed = True
+        if (
+            not isinstance(s.api_token, str)
+            or not s.api_token
+            or len(s.api_token) < 24
+            or s.api_token == s.rpc_secret
+        ):
+            s.api_token = _new_distinct_api_token(s.rpc_secret)
+            changed = True
+        if isinstance(s.api_port, bool) or not isinstance(s.api_port, int) or not 1 <= s.api_port <= 65535:
+            s.api_port = DEFAULT_API_PORT
+            changed = True
+        if not isinstance(s.api_enabled, bool):
+            s.api_enabled = True
+            changed = True
+        if changed:
             s.save()
         return s
 
@@ -140,7 +180,7 @@ class Settings:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         data = asdict(self)
-        # Write atomically with restrictive perms so the RPC secret isn't
+        # Write atomically with restrictive perms so the local secrets aren't
         # readable by other local users. NOTE: chmod 0o600 only restricts
         # access on POSIX; on Windows it's effectively a no-op and the file
         # inherits the parent directory's ACL.

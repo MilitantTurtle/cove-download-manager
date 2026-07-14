@@ -91,6 +91,7 @@ COMMON_ARGS=(
     --add-binary "${ARIA_EXE};."
     --hidden-import cove
     --hidden-import cove.app
+    --hidden-import cove.api_server
     --hidden-import requests
     --collect-submodules requests
     --exclude-module PySide6.QtWebEngineCore

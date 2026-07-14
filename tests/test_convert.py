@@ -48,12 +48,12 @@ def test_ffmpeg_command_exact_args():
     out = Path("/dl/clip.mp3")
     cmd = ffmpeg_mp3_command(src, out, source_url="https://example.com/v.mp4")
     assert cmd == [
-        "ffmpeg", "-y", "-i", "/dl/clip.mp4",
+        "ffmpeg", "-y", "-i", str(src),
         "-vn", "-map_metadata", "0",
         "-c:a", "libmp3lame", "-q:a", "2",
         "-metadata", "title=clip",
         "-metadata", "comment=Source: https://example.com/v.mp4",
-        "-id3v2_version", "3", "/dl/clip.mp3",
+        "-id3v2_version", "3", str(out),
     ]
 
 
@@ -65,12 +65,14 @@ def test_ffmpeg_command_without_url():
 
 
 def test_ffmpeg_command_is_plain_argv_list():
-    cmd = ffmpeg_mp3_command(Path("/dl/a b.mp4"), Path("/dl/a b.mp3"))
+    src = Path("/dl/a b.mp4")
+    out = Path("/dl/a b.mp3")
+    cmd = ffmpeg_mp3_command(src, out)
     assert isinstance(cmd, list)
     assert all(isinstance(entry, str) for entry in cmd)
     # Paths with spaces stay single argv entries - never shell-joined.
-    assert "/dl/a b.mp4" in cmd
-    assert "/dl/a b.mp3" in cmd
+    assert str(src) in cmd
+    assert str(out) in cmd
 
 
 def test_metadata_newlines_sanitized():
