@@ -14,8 +14,11 @@ Rules:
 3. Treat stdout as JSON. A command succeeded only when the top-level `ok` field
    is `true`. If it is `false`, report the error code and message accurately.
 4. For `add`, omit `--directory` and `--connections` unless the user specifies
-   them; the wrapper then uses the current Cove UI defaults. Use `--name` only
-   when the user requests a filename.
+   them; the wrapper then uses the current Cove UI defaults. Use `--name` when
+   the user supplies a filename or the original source URL clearly identifies
+   the expected filename. For Hugging Face `/resolve/` URLs, pass the basename
+   from the original URL so Xet/CAS redirects do not leave a content-hash
+   filename. Never invent a filename when it is ambiguous.
 5. When the user specifies a destination folder, pass its absolute path using
    `--directory "PATH"`. Any absolute folder is allowed. If it does not exist,
    add `--create-directory` only when creating that requested folder is intended.
