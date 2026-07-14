@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFrame,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -20,9 +21,11 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTimeEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 from .clipboard import extract_urls
@@ -274,6 +277,21 @@ class SettingsDialog(QDialog):
 
         _title_block(layout, "Settings", "Defaults applied to new downloads.")
 
+        # The settings form is taller than the usable desktop on many laptop
+        # and scaled displays. Keep the title and action buttons visible while
+        # allowing the form itself to shrink and scroll.
+        self.settings_scroll = QScrollArea(self)
+        self.settings_scroll.setObjectName("settingsScroll")
+        self.settings_scroll.setWidgetResizable(True)
+        self.settings_scroll.setFrameShape(QFrame.NoFrame)
+        self.settings_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(14)
+
         form = QFormLayout()
         form.setSpacing(10)
 
@@ -329,7 +347,7 @@ class SettingsDialog(QDialog):
         self.notify_error.setChecked(settings.notify_on_error)
         form.addRow("", self.notify_error)
 
-        layout.addLayout(form)
+        scroll_layout.addLayout(form)
 
         # Proxy
         proxy_group = QGroupBox("Proxy")
@@ -362,7 +380,7 @@ class SettingsDialog(QDialog):
         self.proxy_note = QLabel("Restart Cove to apply proxy changes.")
         self.proxy_note.setProperty("role", "muted")
         proxy_lay.addRow(self.proxy_note)
-        layout.addWidget(proxy_group)
+        scroll_layout.addWidget(proxy_group)
         self._on_proxy_type_changed()
 
         # Category folders
@@ -391,7 +409,10 @@ class SettingsDialog(QDialog):
         cat_note = QLabel("Leave blank to use the default download folder.")
         cat_note.setProperty("role", "muted")
         cat_lay.addRow(cat_note)
-        layout.addWidget(cat_group)
+        scroll_layout.addWidget(cat_group)
+
+        self.settings_scroll.setWidget(scroll_content)
+        layout.addWidget(self.settings_scroll, 1)
 
         # Keep a direct reference to the button box rather than fishing it
         # back out of the layout by index (which breaks if layout order
@@ -400,6 +421,18 @@ class SettingsDialog(QDialog):
         layout.addWidget(bb)
         bb.accepted.disconnect()
         bb.accepted.connect(self._on_accept)
+
+        screen = self.screen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            width = min(900, max(540, available.width() - 80))
+            height = min(
+                720,
+                max(self.minimumSizeHint().height(), available.height() - 80),
+            )
+            self.resize(width, height)
+        else:  # Defensive fallback for unusual headless Qt platforms.
+            self.resize(900, 640)
 
     def _browse(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Default download folder", self.dir_edit.text())
