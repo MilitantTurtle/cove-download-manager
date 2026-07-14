@@ -21,6 +21,11 @@ Use Cove Download Manager only through its official `cove-api.cmd` client.
    `error.message`.
 4. For `add`, the URL is required. Omit `--directory` and `--connections`
    unless the user specifies them; Cove then applies its current defaults.
+   In PowerShell, if a URL contains `&` or other command-shell metacharacters,
+   put it in the `COVE_DOWNLOAD_URL` environment variable and use
+   `add --url-env COVE_DOWNLOAD_URL`. Remove the environment variable after
+   the command. This prevents Windows batch parsing from truncating signed
+   URLs.
 5. Use `--name` when the user supplies a filename or the original source URL
    clearly identifies the expected filename. For Hugging Face `/resolve/`
    URLs, use the basename from the original URL so Xet/CAS redirects do not
@@ -63,6 +68,7 @@ Examples:
 ```text
 C:\path\to\cove-api\cove-api.cmd health
 C:\path\to\cove-api\cove-api.cmd add "https://example.com/file.zip"
+C:\path\to\cove-api\cove-api.cmd add --url-env COVE_DOWNLOAD_URL
 C:\path\to\cove-api\cove-api.cmd add "https://example.com/model.gguf" --directory "D:\Models" --name "model.gguf" --connections 8
 C:\path\to\cove-api\cove-api.cmd status 123
 C:\path\to\cove-api\cove-api.cmd list

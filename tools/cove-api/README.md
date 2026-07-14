@@ -60,6 +60,19 @@ Override selected values:
 tools\cove-api\cove-api.cmd add "https://example.com/file.zip" --directory "D:\Downloads" --name "example.zip" --connections 8
 ```
 
+PowerShell can split signed URLs containing `&` when invoking a `.cmd` file.
+For those URLs, keep the URL out of the command line and read it from an
+environment variable instead:
+
+```powershell
+$env:COVE_DOWNLOAD_URL = $signedUrl
+tools\cove-api\cove-api.cmd add --url-env COVE_DOWNLOAD_URL --directory "D:\Downloads"
+Remove-Item Env:COVE_DOWNLOAD_URL
+```
+
+`--url-env NAME` passes the environment variable's value to Cove unchanged.
+It is mutually exclusive with the positional URL.
+
 Control a download using the integer `task_id` returned by `add`:
 
 ```powershell

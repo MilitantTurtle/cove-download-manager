@@ -543,7 +543,24 @@ def command_add(
     settings: LoadedSettings,
     config: dict[str, Any],
 ) -> dict[str, Any]:
-    download_url = validate_url(args.url)
+    url_env = getattr(args, "url_env", None)
+    if url_env is not None:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", url_env):
+            raise CoveApiError(
+                "invalid_url_environment_variable",
+                "--url-env must name a valid environment variable.",
+                exit_code=5,
+            )
+        environment_url = os.environ.get(url_env)
+        if environment_url is None:
+            raise CoveApiError(
+                "url_environment_variable_not_found",
+                f"The environment variable {url_env} is not set.",
+                exit_code=5,
+            )
+        download_url = validate_url(environment_url)
+    else:
+        download_url = validate_url(args.url)
     filename = validate_filename(args.name)
     directory = None
     if args.directory is not None:
@@ -655,7 +672,13 @@ def build_parser() -> JsonArgumentParser:
     sub.add_parser("settings", help="Show safe current settings without local secrets")
 
     add = sub.add_parser("add", help="Add a download")
-    add.add_argument("url")
+    url_source = add.add_mutually_exclusive_group(required=True)
+    url_source.add_argument("url", nargs="?")
+    url_source.add_argument(
+        "--url-env",
+        metavar="NAME",
+        help="Read the URL from an environment variable (safe for shell metacharacters)",
+    )
     add.add_argument("--directory")
     add.add_argument("--name")
     add.add_argument("--connections", type=int)

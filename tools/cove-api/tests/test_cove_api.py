@@ -1,6 +1,10 @@
 import json
+import os
+import subprocess
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -116,6 +120,58 @@ class ExecutableDiscoveryTests(unittest.TestCase):
 
 
 class AddCommandTests(unittest.TestCase):
+    def test_add_reads_signed_url_from_environment_without_modification(self):
+        signed_url = "https://example.com/file.zip?sv=1&se=2&sig=abc%2Bdef"
+        args = cove_api.build_parser().parse_args(
+            ["add", "--url-env", "COVE_TEST_DOWNLOAD_URL"]
+        )
+        with patch.dict(os.environ, {"COVE_TEST_DOWNLOAD_URL": signed_url}):
+            with tempfile.TemporaryDirectory() as root:
+                settings = cove_api.LoadedSettings(
+                    Path(root) / "settings.json",
+                    {"download_dir": root},
+                )
+
+                class FakeClient:
+                    def request(self, method, path, payload=None):
+                        self.payload = payload
+                        return {
+                            "download": {
+                                "task_id": 18,
+                                "gid": None,
+                                "status": "queued",
+                                "directory": root,
+                                "filename": None,
+                                "connections": 16,
+                                "speed_limit_kbps": 0,
+                            }
+                        }
+
+                client = FakeClient()
+                result = cove_api.command_add(
+                    args,
+                    client,
+                    settings,
+                    {"max_connections": 16},
+                )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(client.payload["url"], signed_url)
+
+    def test_add_requires_existing_url_environment_variable(self):
+        args = cove_api.build_parser().parse_args(
+            ["add", "--url-env", "COVE_TEST_MISSING_URL"]
+        )
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(cove_api.CoveApiError) as caught:
+                cove_api.command_add(
+                    args,
+                    SimpleNamespace(),
+                    SimpleNamespace(values={}),
+                    {"max_connections": 16},
+                )
+        self.assertEqual(caught.exception.code, "url_environment_variable_not_found")
+
     def test_add_uses_current_cove_defaults(self):
         with tempfile.TemporaryDirectory() as root:
             settings = cove_api.LoadedSettings(
@@ -197,6 +253,96 @@ class AddCommandTests(unittest.TestCase):
 
             self.assertEqual(caught.exception.code, "invalid_connections")
             self.assertIn("between 1 and 16", caught.exception.message)
+
+
+@unittest.skipUnless(os.name == "nt", "Windows command launcher test")
+class WindowsLauncherTests(unittest.TestCase):
+    def test_cmd_preserves_signed_url_from_environment(self):
+        signed_url = "https://example.com/file.zip?sv=1&se=2&sig=abc%2Bdef"
+        received_payload = {}
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass
+
+            def send_json(self, payload):
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                self.send_json({"ok": True})
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", "0"))
+                received_payload.update(json.loads(self.rfile.read(length)))
+                self.send_json(
+                    {
+                        "ok": True,
+                        "download": {
+                            "task_id": 19,
+                            "gid": None,
+                            "status": "queued",
+                            "directory": str(Path(tempfile.gettempdir()).resolve()),
+                            "filename": None,
+                            "connections": 16,
+                            "speed_limit_kbps": 0,
+                        },
+                    }
+                )
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as root:
+                settings_path = Path(root) / "settings.json"
+                settings_path.write_text(
+                    json.dumps(
+                        {
+                            "api_port": server.server_port,
+                            "api_token": "x" * 43,
+                            "download_dir": root,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                config_path = Path(root) / "wrapper_config.json"
+                config_path.write_text(
+                    json.dumps({"auto_start_cove": False}),
+                    encoding="utf-8",
+                )
+                environment = os.environ.copy()
+                environment["COVE_TEST_DOWNLOAD_URL"] = signed_url
+                launcher = Path(__file__).resolve().parents[1] / "cove-api.cmd"
+                completed = subprocess.run(
+                    [
+                        str(launcher),
+                        "--settings",
+                        str(settings_path),
+                        "--config",
+                        str(config_path),
+                        "add",
+                        "--url-env",
+                        "COVE_TEST_DOWNLOAD_URL",
+                    ],
+                    capture_output=True,
+                    check=False,
+                    env=environment,
+                    text=True,
+                    timeout=10,
+                )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertTrue(json.loads(completed.stdout)["ok"])
+        self.assertEqual(received_payload["url"], signed_url)
 
 
 class CoveStartupTests(unittest.TestCase):
