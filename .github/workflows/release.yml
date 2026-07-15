@@ -159,6 +159,13 @@ jobs:
           Copy-Item -Path "$($src.FullName)/*" -Destination build/aria2-win -Recurse -Force
           Test-Path build/aria2-win/aria2c.exe
 
+      - name: Fetch yt-dlp.exe
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/yt-dlp-win | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile build/yt-dlp-win/yt-dlp.exe
+          if (-not (Test-Path build/yt-dlp-win/yt-dlp.exe)) { throw "yt-dlp.exe download failed" }
+
       - name: PyInstaller (one-dir for installer)
         shell: pwsh
         run: |
@@ -170,6 +177,7 @@ jobs:
             --paths . `
             --add-data "cove_icon.png;cove" `
             --add-binary "build/aria2-win/aria2c.exe;." `
+            --add-binary "build/yt-dlp-win/yt-dlp.exe;." `
             --hidden-import cove `
             --hidden-import cove.app `
             --hidden-import requests `
@@ -204,6 +212,7 @@ jobs:
             --paths . `
             --add-data "cove_icon.png;cove" `
             --add-binary "build/aria2-win/aria2c.exe;." `
+            --add-binary "build/yt-dlp-win/yt-dlp.exe;." `
             --hidden-import cove `
             --hidden-import cove.app `
             --hidden-import requests `
@@ -300,6 +309,14 @@ jobs:
           VERSION="${{ steps.ver.outputs.version }}"
           NOTES_FILE="$(mktemp)"
           cat > "$NOTES_FILE" <<'NOTESEOF'
+          ## What's new in 1.9.0
+
+          - Added browser extension downloads for YouTube videos through Cove's native messaging bridge.
+          - Kept the Download with Cove pill visible during playback, including direct old Reddit video pages.
+          - Added page title based filenames for browser initiated downloads.
+          - Improved direct video and HLS detection, download handoff reliability, and unavailable video errors.
+          - Added an extension setting to enable or disable the in-page download pill.
+
           ## Downloads
 
           | Platform | File |

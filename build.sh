@@ -17,6 +17,7 @@ OUT="release/${OUT_NAME}"
 cat > build/recipe/requirements.txt <<EOF
 PySide6>=6.5
 requests>=2.31
+yt-dlp>=2025.1.0
 ${HERE}
 EOF
 # Refresh bundled icon — once into build/recipe (for python-appimage's

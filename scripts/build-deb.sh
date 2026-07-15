@@ -4,8 +4,8 @@
 # Output: release/cove-download-manager_<version>_amd64.deb
 #
 # Notes:
-# - Declares Depends: aria2 — the package manager pulls aria2 in for us, so
-#   we don't bundle it. Cove's daemon manager exec's aria2c off PATH.
+# - Declares aria2 and yt-dlp dependencies so the package manager installs
+#   the command-line tools Cove launches from PATH.
 # - Builds the .deb manually with `ar` + `tar.xz`, no dpkg-deb dependency,
 #   so it works on Arch / non-Debian build hosts.
 #
@@ -125,7 +125,7 @@ Version: $VERSION
 Architecture: $DEB_ARCH
 Maintainer: Cove <noreply@cove.local>
 Installed-Size: $INSTALLED_SIZE
-Depends: aria2
+Depends: aria2, yt-dlp
 Section: net
 Priority: optional
 Homepage: https://github.com/Sin213/cove-download-manager

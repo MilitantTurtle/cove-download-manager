@@ -177,6 +177,29 @@ def test_handle_download():
     assert "Referer: https://example.com/page" in headers
 
 
+def test_handle_youtube_download_queues_extractor(tmp_path, monkeypatch):
+    monkeypatch.setattr("cove.config.DATA_DIR", tmp_path)
+    rpc = MagicMock()
+    settings = MagicMock()
+    settings.download_dir = "/tmp/downloads"
+
+    result = handle_message(
+        {
+            "action": "download",
+            "url": "https://www.youtube.com/watch?v=BMcJirSZACw",
+            "filename": "The BEST Way To Cook Pork Tenderloin.mp4",
+        },
+        rpc=rpc,
+        settings=settings,
+    )
+
+    assert result == {"status": "ok", "message": "Video download queued in Cove"}
+    drop_files = list((tmp_path / "drop").glob("extractor-*.json"))
+    assert len(drop_files) == 1
+    assert '"url": "https://www.youtube.com/watch?v=BMcJirSZACw"' in drop_files[0].read_text()
+    rpc.add_uri.assert_not_called()
+
+
 def test_handle_download_invalid_url():
     result = handle_message(
         {"action": "download", "url": "file:///etc/passwd"},

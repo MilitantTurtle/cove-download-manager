@@ -7,7 +7,7 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
 ![Python](https://img.shields.io/badge/python-3.10%2B-orange?style=flat-square&logo=python)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux-informational?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/release-v1.8.0-5eead4?style=flat-square)
+![Version](https://img.shields.io/badge/release-v1.9.0-5eead4?style=flat-square)
 
 ![Cove Download Manager](docs/screenshot.png)
 
@@ -48,9 +48,9 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
 - **Browser extension** - intercept downloads from Firefox, Chrome, and
   their derivatives (Zen, LibreWolf, Edge, Brave, and more). See
   [Browser Extension](#browser-extension).
-- **In-page video pill** - hover a video on any page and a floating
-  "Download with Cove" pill appears; one click sends the media to Cove.
-  Direct MP4/WebM everywhere, detected HLS (M3U8) streams on Firefox.
+- **In-page video pill** - a floating "Download with Cove" pill appears on
+  video players while hovering or playing; one click sends the media to Cove.
+  Supports direct MP4/WebM, detected HLS (M3U8), old Reddit posts, and YouTube.
 - **Frameless cove UI** - custom titlebar, mint accent, light and dark
   palettes. Dragging via `startSystemMove`, edge-resize via
   `startSystemResize`, both Wayland-safe.
@@ -79,7 +79,7 @@ sudo dpkg -i cove-download-manager_<version>_amd64.deb
 sudo apt -f install   # if dependencies are missing
 ```
 
-The `.deb` declares `Depends: aria2`, so apt pulls it in for you.
+The `.deb` declares `Depends: aria2, yt-dlp`, so apt pulls both in for you.
 
 ### Windows
 
@@ -153,14 +153,15 @@ and user-agent headers so authenticated downloads work seamlessly.
 
 ### In-page video pill
 
-Hover a `<video>` player on any page and a small floating "Download with
-Cove" pill appears in its top-right corner. Clicking it sends the media
-URL to Cove with the page's cookies and referrer. Direct `http(s)` video
-sources work in both browsers; on Firefox the pill also picks up HLS
-(M3U8) streams the extension detected for the tab. Nothing downloads
-automatically - the pill only acts on an explicit click, and unsupported
-media (DRM, blob-only players with no detected stream) simply shows no
-pill.
+Hover or play a `<video>` on any page and a small floating "Download with
+Cove" pill appears in its top-right corner. It remains available during
+playback, including on direct old Reddit post pages. Clicking it sends the
+media URL, page title, cookies, and referrer to Cove so downloads receive a
+useful filename. Direct `http(s)` video sources work in both browsers;
+Firefox also detects HLS (M3U8) streams for the tab. YouTube watch pages are
+handed to Cove for extraction with yt-dlp. The pill can be disabled in the
+extension settings. Nothing downloads automatically; it only acts on an
+explicit click, and DRM-protected media remains unsupported.
 
 ---
 

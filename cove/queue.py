@@ -161,6 +161,8 @@ class QueueManager(QObject):
         self._hls_procs: dict[int, QProcess] = {}
         self._hls_duration: dict[int, float] = {}
         self._hls_stderr: dict[int, str] = {}
+        self._extractor_procs: dict[int, QProcess] = {}
+        self._extractor_output: dict[int, str] = {}
         self._poll = QTimer(self)
         self._poll.setInterval(500)
         self._poll.timeout.connect(self._poll_active)
@@ -209,7 +211,7 @@ class QueueManager(QObject):
     }
 
     def _check_drop_dir(self) -> None:
-        """Pick up HLS downloads queued by the native messaging process."""
+        """Pick up video downloads queued by the native messaging process."""
         from .config import DATA_DIR
         drop_dir = DATA_DIR / "drop"
         if not drop_dir.is_dir():
@@ -223,7 +225,7 @@ class QueueManager(QObject):
                 f.unlink()
                 url = data.get("url", "")
                 if url:
-                    self.add_url(url)
+                    self.add_url(url, filename=data.get("filename"))
             except Exception:
                 f.unlink(missing_ok=True)
 
@@ -333,7 +335,7 @@ class QueueManager(QObject):
         return self.settings.download_dir
 
     def add_url(
-        self, url: str, out_dir: str | None = None
+        self, url: str, out_dir: str | None = None, filename: str | None = None
     ) -> Optional[int]:
         url = url.strip()
         if not URL_RE.match(url):
@@ -341,15 +343,30 @@ class QueueManager(QObject):
         import posixpath
         from urllib.parse import unquote, urlparse
         from .config import categorize
-        from .hls import ffmpeg_command, is_hls_url, parse_ffmpeg_progress
-        backend = "ffmpeg" if is_hls_url(url) else "aria2"
-        if backend == "ffmpeg":
+        from .extractor import is_extractor_url
+        from .hls import is_hls_url
+        backend = "ffmpeg" if is_hls_url(url) else (
+            "yt-dlp" if is_extractor_url(url) else "aria2"
+        )
+        if backend in {"ffmpeg", "yt-dlp"}:
             import shutil
-            if not shutil.which("ffmpeg"):
-                self.error.emit("ffmpeg is required for HLS/M3U8 downloads")
+            executable = "ffmpeg" if backend == "ffmpeg" else "yt-dlp"
+            found = shutil.which(executable)
+            if backend == "yt-dlp":
+                from .extractor import resolve_ytdlp
+                found = resolve_ytdlp()
+            if not found:
+                self.error.emit(f"{executable} is required for this video download")
                 return None
-            path_part = urlparse(url).path.rsplit("/", 1)[-1]
-            filename = (path_part.rsplit(".", 1)[0] if "." in path_part else "stream") + ".mp4"
+            requested_name = (filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+            requested_name = "".join(c for c in requested_name if ord(c) >= 32).strip()
+            if requested_name:
+                stem = requested_name.rsplit(".", 1)[0]
+                filename = f"{stem}.mp4"
+            else:
+                path_part = urlparse(url).path.rsplit("/", 1)[-1]
+                stem = path_part.rsplit(".", 1)[0] if "." in path_part else "video"
+                filename = f"{stem}.mp4"
             category = "Videos"
         else:
             category = categorize(url)
@@ -385,7 +402,7 @@ class QueueManager(QObject):
             out_dir=dest_dir,
             connections=self.settings.connections_per_server,
             backend=backend,
-            filename=filename if backend == "ffmpeg" else None,
+            filename=filename if backend in {"ffmpeg", "yt-dlp"} else None,
         )
         self.tasks[tid] = t
         self.task_added.emit(tid)
@@ -405,7 +422,7 @@ class QueueManager(QObject):
         t = self.tasks.get(tid)
         if not t or t.status not in {"active", "queued"}:
             return
-        if t.status == "active" and not t.gid:
+        if t.status == "active" and not t.gid and t.backend == "aria2":
             # add_uri is mid-flight; remember the intent so on_done can
             # send rpc.pause() once it knows the gid. Reflect it locally
             # right away so the UI doesn't lie about state.
@@ -470,6 +487,11 @@ class QueueManager(QObject):
             proc = self._hls_procs.pop(tid)
             self._hls_duration.pop(tid, None)
             self._hls_stderr.pop(tid, None)
+            if proc.state() != QProcess.NotRunning:
+                proc.terminate()
+        if tid in self._extractor_procs:
+            proc = self._extractor_procs.pop(tid)
+            self._extractor_output.pop(tid, None)
             if proc.state() != QProcess.NotRunning:
                 proc.terminate()
         self.tasks.pop(tid, None)
@@ -556,6 +578,11 @@ class QueueManager(QObject):
         self._hls_procs.clear()
         self._hls_duration.clear()
         self._hls_stderr.clear()
+        for proc in list(self._extractor_procs.values()):
+            if proc.state() != QProcess.NotRunning:
+                proc.terminate()
+        self._extractor_procs.clear()
+        self._extractor_output.clear()
         self._spawn(self.rpc.pause_all, on_done=lambda _: self._mark_all_active_paused())
 
     def set_overall_speed_limit(self, kbps: int) -> None:
@@ -671,6 +698,49 @@ class QueueManager(QObject):
         proc.finished.connect(on_finished)
         proc.start(cmd[0], cmd[1:])
 
+    def _launch_extractor(self, t: DownloadTask) -> None:
+        from .extractor import parse_ytdlp_progress, ytdlp_command
+        stem = os.path.splitext(t.filename or "video.mp4")[0]
+        output_template = os.path.join(t.out_dir, f"{stem}.%(ext)s")
+        cmd = ytdlp_command(t.url, output_template)
+
+        proc = QProcess(self)
+        proc.setProcessChannelMode(QProcess.MergedChannels)
+        self._extractor_procs[t.id] = proc
+        self._extractor_output[t.id] = ""
+
+        def on_read():
+            data = proc.readAllStandardOutput().data().decode("utf-8", errors="replace")
+            self._extractor_output[t.id] = (self._extractor_output.get(t.id, "") + data)[-12000:]
+            for line in data.splitlines():
+                info = parse_ytdlp_progress(line)
+                if info:
+                    t.total_bytes = 1000
+                    t.completed_bytes = int(info["percent"] * 10)
+                    t.download_speed = int(info.get("speed_bps", 0))
+                    self.task_changed.emit(t.id)
+
+        def on_finished(exit_code, _exit_status):
+            self._extractor_procs.pop(t.id, None)
+            output = self._extractor_output.pop(t.id, "")
+            if exit_code == 0:
+                t.status = "completed"
+                t.finished_at = time.time()
+                t.total_bytes = max(t.total_bytes, 1000)
+                t.completed_bytes = t.total_bytes
+                t.error = None
+            else:
+                t.status = "error"
+                last_lines = "\n".join(output.splitlines()[-5:])
+                t.error = last_lines or f"yt-dlp exited with code {exit_code}"
+            self._persist(t)
+            self.task_changed.emit(t.id)
+            self._maybe_start_next()
+
+        proc.readyReadStandardOutput.connect(on_read)
+        proc.finished.connect(on_finished)
+        proc.start(cmd[0], cmd[1:])
+
     def _launch(self, t: DownloadTask) -> None:
         t.status = "active"
         t.error = None
@@ -678,6 +748,9 @@ class QueueManager(QObject):
         self.task_changed.emit(t.id)
         if t.backend == "ffmpeg":
             self._launch_hls(t)
+            return
+        if t.backend == "yt-dlp":
+            self._launch_extractor(t)
             return
         self._pending_launch[t.id] = {}
 

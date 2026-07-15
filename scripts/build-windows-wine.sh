@@ -68,6 +68,16 @@ fi
 ARIA_EXE="$ARIA_DIR/aria2c.exe"
 [ -f "$ARIA_EXE" ] || { echo "aria2c.exe missing after extract"; exit 1; }
 
+YTDLP_DIR="$ROOT/build/yt-dlp-win"
+YTDLP_EXE="$YTDLP_DIR/yt-dlp.exe"
+if [ ! -f "$YTDLP_EXE" ]; then
+    echo "==> Downloading yt-dlp (Windows x64)"
+    mkdir -p "$YTDLP_DIR"
+    curl -fL --retry 3 --silent --show-error \
+        -o "$YTDLP_EXE" \
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+fi
+
 # ---------------------------------------------------------------- 2. Icon (.ico)
 echo "==> Generating cove_icon.ico"
 wine "$WIN_PY" -c "
@@ -89,6 +99,7 @@ COMMON_ARGS=(
     --paths .
     --add-data "$ASSET_DATA"
     --add-binary "${ARIA_EXE};."
+    --add-binary "${YTDLP_EXE};."
     --hidden-import cove
     --hidden-import cove.app
     --hidden-import requests
