@@ -48,6 +48,8 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
 - **Browser extension** - intercept downloads from Firefox, Chrome, and
   their derivatives (Zen, LibreWolf, Edge, Brave, and more). See
   [Browser Extension](#browser-extension).
+- **Official local API** - authenticated loopback API plus an optional
+  command-line client designed for AI agents and local automation.
 - **In-page video pill** - a floating "Download with Cove" pill appears on
   video players while hovering or playing; one click sends the media to Cove.
   Supports direct MP4/WebM, detected HLS (M3U8), old Reddit posts, and YouTube.
@@ -90,7 +92,8 @@ Two builds on the [Releases](https://github.com/Sin213/cove-download-manager/rel
 - **`Cove-Download-Manager-<version>-Portable.exe`** - single-file build.
   No install, nothing in the registry, runs from anywhere.
 
-Both Windows builds bundle `aria2c.exe`, no system aria2 required.
+Both Windows builds bundle `aria2c.exe` and `yt-dlp.exe`, so direct downloads
+and YouTube extraction work without system installs of either tool.
 
 > On first launch, Windows SmartScreen may show a warning because the
 > `.exe` isn't code-signed. Click **More info** then **Run anyway**.
@@ -176,9 +179,81 @@ explicit click, and DRM-protected media remains unsupported.
 Portable builds keep everything in a `cove-app-data` folder next to the
 executable instead.
 
-Settings include a per-install random RPC token; on POSIX the file is written
+Settings include separate per-install random aria2 RPC and local API secrets;
+on POSIX the file is written
 with `0600` permissions so other local users can't read it (on Windows the
 file inherits the user profile's ACL).
+
+---
+
+## Official local API
+
+Cove starts a versioned HTTP API on `127.0.0.1:17681` by default. It is intended
+for first-party local automation and never listens on a LAN interface. Apart
+from the minimal `GET /api/v1/health` readiness check, endpoints require the
+distinct `api_token` as an `Authorization: Bearer` credential. Browser-origin
+requests and wildcard CORS are not accepted.
+
+The v1 endpoints add, list, inspect, pause, resume, and safely cancel downloads.
+Cancellation always maps to `QueueManager.remove(task_id, delete_file=False)`;
+there is no file-deletion endpoint. All task reads and mutations are marshalled
+onto the Qt main thread and use Cove's normal queue persistence, UI signals,
+and status transitions.
+
+The Windows-only companion
+[`tools/cove-api/cove-api.cmd`](tools/cove-api/README.md) client can start Cove
+when it is offline and emits one stable JSON object per command. Linux
+integrations should use the direct local API method described below. Integer
+Cove `task_id` values are the authoritative control identifiers; an aria2
+`gid` may be null while a task is queued or launching.
+
+### Give an AI access
+
+Choose one integration method. On Windows, the command-line wrapper is
+recommended for small local models because it handles startup, settings
+discovery, authentication, validation, and predictable JSON. The wrapper is
+not currently supported on Linux. Linux integrations should use direct HTTP
+access through a trusted host that starts Cove and injects the API credential.
+
+#### Option 1: Windows command-line wrapper (recommended on Windows)
+
+1. On Windows, download `Cove-AI-Client-<version>.zip` from this repository's
+   release and extract it locally.
+2. Launch Cove once. If the client is not beside Cove, set `cove_executable`
+   in `wrapper_config.json`; pass `--settings` when settings are not discovered
+   automatically.
+3. Give the AI the complete
+   [`AI_WRAPPER_OPERATING_RULES.md`](tools/cove-api/AI_WRAPPER_OPERATING_RULES.md)
+   file as operating instructions and allow it to run `cove-api.cmd`.
+4. The AI runs `health`, then `add`, preserves the returned integer `task_id`,
+   and uses that ID with `status`, `pause`, `resume`, or `cancel`.
+
+```powershell
+cove-api.cmd health
+cove-api.cmd add "https://example.com/file.zip" --directory "D:\Downloads" --connections 8
+cove-api.cmd status 123
+```
+
+The wrapper reads the API credential from Cove's settings itself. Do not copy
+the credential into the prompt. See the
+[`command-line client guide`](tools/cove-api/README.md) for settings discovery,
+signed URLs, filenames, directories, and exit behavior.
+
+#### Option 2: direct local API (Windows and Linux; recommended on Linux)
+
+1. The trusted host integration starts Cove and checks `GET /api/v1/health`.
+   On Linux, use this method instead of the Windows `.cmd` wrapper.
+2. Outside the model, the host reads Cove's `api_token` and injects it as the
+   `Authorization: Bearer <token>` header for authenticated requests.
+3. Give the AI the complete
+   [`AI_DIRECT_API_OPERATING_RULES.md`](tools/cove-api/AI_DIRECT_API_OPERATING_RULES.md)
+   file and expose a local HTTP tool configured for Cove's base URL.
+4. The AI calls `POST /api/v1/downloads`, preserves
+   `download.task_id`, and polls `GET /api/v1/downloads/{task_id}`.
+
+The bearer token must remain in the host's secret store: the AI should never
+read, print, log, or request it. Both methods support URL, absolute destination,
+safe filename, 1-16 connections, and per-download speed limit overrides.
 
 ---
 
@@ -225,11 +300,10 @@ binary unless its SHA-256 matches the published manifest.
 
 ## Build from source
 
-Requires Python 3.10+ on Linux; building Windows artifacts also needs
-`wine` and a wineprefix at `~/.wine-covebuild` with Python 3.12 +
-PyInstaller. The Windows path matches the rest of the cove tooling -
-the [cove-compressor build script](https://github.com/Sin213/cove-compressor/blob/main/scripts/build-windows-wine.sh)
-documents the wineprefix bootstrap.
+Running from source requires Python 3.10+. Windows artifacts are built natively
+by GitHub Actions and can also be built locally with PowerShell, Python 3.12,
+PyInstaller, Pillow, and an `aria2c.exe` path. The older Wine script remains
+available for Linux cross-build environments.
 
 ```bash
 git clone https://github.com/Sin213/cove-download-manager
@@ -245,11 +319,20 @@ pip install -r requirements.txt
 # Linux .deb (PyInstaller based)
 ./scripts/build-deb.sh
 
-# Windows Setup.exe + Portable.exe via Wine
+# Windows portable (native PowerShell)
+.\scripts\build-windows.ps1 -Python .\.buildenv\Scripts\python.exe -Aria2Exe C:\path\to\aria2c.exe
+
+# Windows Setup.exe too, when Inno Setup 6 is installed
+.\scripts\build-windows.ps1 -Python .\.buildenv\Scripts\python.exe -Aria2Exe C:\path\to\aria2c.exe -Setup
+
+# Windows cross-build from Linux via Wine
 ./scripts/build-windows-wine.sh
 ```
 
-All artifacts land in `release/`, each with a matching `.sha256` sidecar.
+Artifacts land in `release/` with matching `.sha256` sidecars. Windows builds
+also stage `Cove-AI-Client-<version>.zip`. The native Windows builder downloads
+the official `yt-dlp.exe` automatically when it is not already under
+`build\yt-dlp-win`; use `-YtDlpExe PATH` or `COVE_YTDLP_EXE` to supply one.
 
 ---
 

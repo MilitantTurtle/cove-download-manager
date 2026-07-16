@@ -7,9 +7,13 @@ a persisted queued/active/paused task was restored on startup.
 
 import sqlite3
 import time
+from types import SimpleNamespace
+
+from PySide6.QtCore import QCoreApplication
 
 from cove import db
-from cove.queue import _row_get, _task_from_persisted_row
+from cove.config import CategoryDirs, Settings
+from cove.queue import QueueManager, _row_get, _task_from_persisted_row
 
 
 def _row(conn, **overrides):
@@ -102,3 +106,44 @@ def test_row_missing_optional_columns_uses_defaults(tmp_path):
     task = _task_from_persisted_row(row)
     conn.close()
     assert task.backend == "aria2"
+
+
+def test_add_url_accepts_api_overrides_and_preserves_hls_backend(tmp_path, monkeypatch):
+    QCoreApplication.instance() or QCoreApplication([])
+    path = tmp_path / "cove.db"
+    original_init = db.init
+    original_connect = db.connect
+    monkeypatch.setattr(db, "init", lambda: original_init(path))
+    monkeypatch.setattr(db, "connect", lambda: original_connect(path))
+    monkeypatch.setattr("shutil.which", lambda name: "C:/ffmpeg.exe" if name == "ffmpeg" else None)
+
+    settings = Settings(
+        download_dir=str(tmp_path),
+        connections_per_server=16,
+        auto_sort_by_category=True,
+        category_dirs=CategoryDirs(),
+    )
+    queue = QueueManager(settings, SimpleNamespace())
+    queue._scheduler_allows = False
+    try:
+        task_id = queue.add_url(
+            "https://example.com/live/stream.m3u8",
+            out_dir=str(tmp_path),
+            filename="requested.mp4",
+            connections=4,
+            speed_limit_kbps=128,
+        )
+        task = queue.tasks[task_id]
+        assert task.backend == "ffmpeg"
+        assert task.filename == "requested.mp4"
+        assert task.connections == 4
+        assert task.speed_limit_kbps == 128
+
+        default_id = queue.add_url("https://example.com/archive.zip")
+        default_task = queue.tasks[default_id]
+        assert default_task.connections == 16
+        assert default_task.out_dir == str(tmp_path / "Archives")
+    finally:
+        queue._poll.stop()
+        queue._ext_poll.stop()
+        queue._drop_poll.stop()

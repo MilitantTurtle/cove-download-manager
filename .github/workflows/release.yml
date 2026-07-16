@@ -260,6 +260,15 @@ jobs:
           $portSrc = "build/win-onefile/dist/cove-download-manager-portable.exe"
           $portDst = "release/Cove-Download-Manager-$version-Portable.exe"
           Copy-Item -Force $portSrc $portDst
+          $clientStage = "build/client-stage/cove-api"
+          New-Item -ItemType Directory -Force -Path $clientStage | Out-Null
+          Copy-Item tools/cove-api/cove-api.cmd $clientStage/
+          Copy-Item tools/cove-api/cove_api.py $clientStage/
+          Copy-Item tools/cove-api/wrapper_config.json $clientStage/
+          Copy-Item tools/cove-api/README.md $clientStage/
+          Copy-Item tools/cove-api/AI_WRAPPER_OPERATING_RULES.md $clientStage/
+          Copy-Item tools/cove-api/AI_DIRECT_API_OPERATING_RULES.md $clientStage/
+          Compress-Archive -Path "$clientStage/*" -DestinationPath "release/Cove-AI-Client-$version.zip" -Force
           Get-ChildItem release | Format-Table -AutoSize
 
       - uses: actions/upload-artifact@v4
@@ -268,6 +277,7 @@ jobs:
           path: |
             release/Cove-Download-Manager-${{ steps.ver.outputs.version }}-Setup.exe
             release/Cove-Download-Manager-${{ steps.ver.outputs.version }}-Portable.exe
+            release/Cove-AI-Client-${{ steps.ver.outputs.version }}.zip
           if-no-files-found: error
 
   # ── Publish GitHub release ─────────────────────────────────────────────
@@ -299,7 +309,7 @@ jobs:
       - name: Generate SHA256 sidecars
         run: |
           cd release
-          for f in *.exe *.AppImage *.deb; do
+          for f in *.exe *.AppImage *.deb *.zip; do
             [ -e "$f" ] && sha256sum "$f" > "$f.sha256"
           done
           cat *.sha256
@@ -327,6 +337,7 @@ jobs:
           | Linux (Debian/Ubuntu) | `cove-download-manager_VERSION_amd64.deb` |
           | Windows installer | `Cove-Download-Manager-VERSION-Setup.exe` |
           | Windows portable | `Cove-Download-Manager-VERSION-Portable.exe` |
+          | AI command-line client | `Cove-AI-Client-VERSION.zip` |
 
           Each artifact has a matching `.sha256` file for verification.
           NOTESEOF
