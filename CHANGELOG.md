@@ -17,6 +17,8 @@
 - Browser-initiated video downloads now use safer page-title-based filenames.
 - Chrome extension metadata is now version 1.3.0 and Firefox is version 1.4.0.
 - Firefox extension minimums are now desktop 140 and Android 142.
+- Documentation now identifies the packaged AI wrapper as Windows-only and
+  directs Linux integrations to the cross-platform direct local API method.
 - MP3 post-download conversion was removed to stay aligned with upstream; an
   audio-download mode can be added separately later if needed.
 

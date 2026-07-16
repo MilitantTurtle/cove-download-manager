@@ -200,22 +200,25 @@ there is no file-deletion endpoint. All task reads and mutations are marshalled
 onto the Qt main thread and use Cove's normal queue persistence, UI signals,
 and status transitions.
 
-The companion [`tools/cove-api/cove-api.cmd`](tools/cove-api/README.md) client
-can start Cove when it is offline and emits one stable JSON object per command.
-Integer Cove `task_id` values are the authoritative control identifiers; an
-aria2 `gid` may be null while a task is queued or launching.
+The Windows-only companion
+[`tools/cove-api/cove-api.cmd`](tools/cove-api/README.md) client can start Cove
+when it is offline and emits one stable JSON object per command. Linux
+integrations should use the direct local API method described below. Integer
+Cove `task_id` values are the authoritative control identifiers; an aria2
+`gid` may be null while a task is queued or launching.
 
 ### Give an AI access
 
-Choose one integration method. The command-line wrapper is recommended for
-small local models because it handles startup, settings discovery,
-authentication, validation, and predictable JSON. Direct HTTP access is best
-when the AI host already has a trusted secret-injection and HTTP-tool layer.
+Choose one integration method. On Windows, the command-line wrapper is
+recommended for small local models because it handles startup, settings
+discovery, authentication, validation, and predictable JSON. The wrapper is
+not currently supported on Linux. Linux integrations should use direct HTTP
+access through a trusted host that starts Cove and injects the API credential.
 
-#### Option 1: command-line wrapper (recommended)
+#### Option 1: Windows command-line wrapper (recommended on Windows)
 
-1. Download `Cove-AI-Client-<version>.zip` from this repository's release and
-   extract it locally.
+1. On Windows, download `Cove-AI-Client-<version>.zip` from this repository's
+   release and extract it locally.
 2. Launch Cove once. If the client is not beside Cove, set `cove_executable`
    in `wrapper_config.json`; pass `--settings` when settings are not discovered
    automatically.
@@ -236,9 +239,10 @@ the credential into the prompt. See the
 [`command-line client guide`](tools/cove-api/README.md) for settings discovery,
 signed URLs, filenames, directories, and exit behavior.
 
-#### Option 2: direct local API
+#### Option 2: direct local API (Windows and Linux; recommended on Linux)
 
 1. The trusted host integration starts Cove and checks `GET /api/v1/health`.
+   On Linux, use this method instead of the Windows `.cmd` wrapper.
 2. Outside the model, the host reads Cove's `api_token` and injects it as the
    `Authorization: Bearer <token>` header for authenticated requests.
 3. Give the AI the complete

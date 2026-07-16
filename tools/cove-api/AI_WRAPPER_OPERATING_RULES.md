@@ -1,10 +1,11 @@
 # AI operating rules: command-line wrapper
 
-These instructions are for any AI agent that can run local commands. The
-integrator must replace `C:\path\to\cove-api` with the installed client
-directory. When Cove's settings are not discoverable automatically, the
-integrator must also provide the absolute settings path with `--settings`
-before the command name on every invocation.
+These Windows-only instructions are for any AI agent that can run local
+commands. The integrator must replace `C:\path\to\cove-api` with the installed
+client directory. When Cove's settings are not discoverable automatically,
+the integrator must also provide the absolute settings path with `--settings`
+before the command name on every invocation. Linux integrations must use
+`AI_DIRECT_API_OPERATING_RULES.md` instead.
 
 Use Cove Download Manager only through its official `cove-api.cmd` client.
 

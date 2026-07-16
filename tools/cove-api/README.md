@@ -1,8 +1,8 @@
-# Cove local API command-line client
+# Cove local API command-line client for Windows
 
-This is the dependency-free command-line client for Cove Download Manager's
-official, versioned local API. It is not a proxy: file bytes travel directly
-between Cove's transfer backend and the remote server.
+This is the dependency-free Windows command-line client for Cove Download
+Manager's official, versioned local API. It is not a proxy: file bytes travel
+directly between Cove's transfer backend and the remote server.
 
 Every command prints exactly one JSON object. The distinct API token is read
 from Cove's settings and is never included in output.
@@ -20,6 +20,20 @@ it reduces the operation to a small command vocabulary and handles Cove
 startup, settings discovery, authentication, validation, and stable JSON
 output. Direct API access is useful when an agent host already provides those
 capabilities reliably.
+
+## Platform support
+
+The packaged wrapper is Windows-specific. It uses `cove-api.cmd`, discovers
+and launches Windows Cove `.exe` builds, and applies Windows process and
+filename rules. Running `cove_api.py` directly on Linux is not a supported
+wrapper configuration.
+
+On Linux, run Cove normally and use the
+[`direct local API instructions`](AI_DIRECT_API_OPERATING_RULES.md) through a
+trusted local HTTP integration. That host must start Cove when needed, read the
+`api_token` outside the model, inject it as a bearer credential, and keep it
+out of prompts and tool output. The direct API itself is available on both
+Windows and Linux.
 
 ## Requirements
 

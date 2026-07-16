@@ -1,9 +1,11 @@
 # AI operating rules: direct local API
 
-These instructions are for AI agents with a trusted, non-browser local HTTP
-tool. The host integration must start Cove and configure the API base URL and
-bearer token before the AI uses the tool. The token must be injected as a
-secret by the host; it must not be placed in the prompt or returned to the AI.
+These cross-platform instructions are for AI agents with a trusted,
+non-browser local HTTP tool on Windows or Linux. This is the supported AI
+integration method on Linux. The host integration must start Cove and configure
+the API base URL and bearer token before the AI uses the tool. The token must
+be injected as a secret by the host; it must not be placed in the prompt or
+returned to the AI.
 
 ## Connection contract
 
