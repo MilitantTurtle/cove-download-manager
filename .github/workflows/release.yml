@@ -180,6 +180,7 @@ jobs:
             --add-binary "build/yt-dlp-win/yt-dlp.exe;." `
             --hidden-import cove `
             --hidden-import cove.app `
+            --hidden-import cove.api_server `
             --hidden-import requests `
             --collect-submodules requests `
             --exclude-module PySide6.QtWebEngineCore `
@@ -215,6 +216,7 @@ jobs:
             --add-binary "build/yt-dlp-win/yt-dlp.exe;." `
             --hidden-import cove `
             --hidden-import cove.app `
+            --hidden-import cove.api_server `
             --hidden-import requests `
             --collect-submodules requests `
             --exclude-module PySide6.QtWebEngineCore `
@@ -230,7 +232,7 @@ jobs:
             --exclude-module tkinter `
             --distpath build/win-onefile/dist `
             --workpath build/win-onefile/work `
-            packaging/launcher.py
+            packaging/portable_launcher.py
 
       - name: Install Inno Setup
         shell: pwsh

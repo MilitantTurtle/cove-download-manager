@@ -11,6 +11,7 @@ Order:
 from __future__ import annotations
 
 import sys
+import logging
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QIcon, QPalette, QColor
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from . import APP_NAME, __version__, theme
 from .aria2 import Aria2Daemon, Aria2Error, Aria2RPC
+from .api_server import LocalApiServer
 from .config import Settings
 from .main_window import MainWindow
 from .queue import QueueManager
@@ -85,7 +87,6 @@ def run() -> int:
         # Non-fatal (the app still runs without the extension), but don't
         # swallow it silently — this is the usual "extension can't connect"
         # root cause.
-        import logging
         logging.getLogger("cove").warning(
             "native messaging host registration failed", exc_info=True
         )
@@ -100,6 +101,15 @@ def run() -> int:
     scheduler = Scheduler(settings.schedule)
 
     window = MainWindow(settings, queue, scheduler)
+    api_server = LocalApiServer(settings, queue)
+
+    def _start_api_server() -> None:
+        try:
+            api_server.start()
+        except (OSError, ValueError) as exc:
+            message = f"Cove local API could not start on 127.0.0.1:{settings.api_port}: {exc}"
+            logging.getLogger("cove").warning(message)
+            queue.error.emit(message)
 
     def _on_theme_toggled(name: str) -> None:
         settings.theme = name
@@ -127,6 +137,10 @@ def run() -> int:
             pass
         # Now that aria2 is reachable, drive any persisted-queued tasks.
         queue.resume_persisted()
+        # Accept API downloads only once aria2 is up, so a request that
+        # races app startup cannot be persisted straight into "error".
+        if settings.api_enabled:
+            _start_api_server()
 
     QTimer.singleShot(0, _boot_daemon)
 
@@ -149,6 +163,10 @@ def run() -> int:
         # torn down during shutdown.
         try:
             window.stop_ui_timers()
+        except Exception:
+            pass
+        try:
+            api_server.stop()
         except Exception:
             pass
         try:

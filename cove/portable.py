@@ -1,6 +1,8 @@
 import os
 import sys
 
+PORTABLE_ENV = "COVE_PORTABLE"
+
 
 def _exe_dir():
     if getattr(sys, 'frozen', False):
@@ -9,6 +11,8 @@ def _exe_dir():
 
 
 def is_portable():
+    if os.environ.get(PORTABLE_ENV) == "1":
+        return True
     base = _exe_dir()
     return (os.path.isdir(os.path.join(base, 'cove-app-data'))
             or os.path.isfile(os.path.join(base, 'portable.marker')))

@@ -19,6 +19,7 @@ DB_FILE = DATA_DIR / "cove.db"
 ARIA2_SESSION = DATA_DIR / "aria2.session"
 ARIA2_LOG = DATA_DIR / "aria2.log"
 DEFAULT_DOWNLOAD_DIR = Path.home() / "Downloads"
+DEFAULT_API_PORT = 17681
 # Stock aria2 validates --max-connection-per-server in the range 1-16.
 MAX_CONNECTIONS_PER_SERVER = 16
 
@@ -84,6 +85,18 @@ def _new_rpc_secret() -> str:
     return secrets.token_urlsafe(24)
 
 
+def _new_api_token() -> str:
+    """Return a secret used only by Cove's first-party loopback API."""
+    return secrets.token_urlsafe(32)
+
+
+def _new_distinct_api_token(rpc_secret: str) -> str:
+    token = _new_api_token()
+    while token == rpc_secret:
+        token = _new_api_token()
+    return token
+
+
 @dataclass
 class Settings:
     download_dir: str = str(DEFAULT_DOWNLOAD_DIR)
@@ -109,6 +122,9 @@ class Settings:
     auto_sort_by_category: bool = False
     category_dirs: CategoryDirs = field(default_factory=CategoryDirs)
     schedule: ScheduleWindow = field(default_factory=ScheduleWindow)
+    api_enabled: bool = True
+    api_port: int = DEFAULT_API_PORT
+    api_token: str = ""  # distinct from rpc_secret; never returned by the API
 
     @classmethod
     def load(cls) -> "Settings":
@@ -117,6 +133,7 @@ class Settings:
         if not CONFIG_FILE.exists():
             s = cls()
             s.rpc_secret = _new_rpc_secret()
+            s.api_token = _new_distinct_api_token(s.rpc_secret)
             s.save()
             return s
         try:
@@ -124,6 +141,7 @@ class Settings:
         except (OSError, json.JSONDecodeError):
             s = cls()
             s.rpc_secret = _new_rpc_secret()
+            s.api_token = _new_distinct_api_token(s.rpc_secret)
             s.save()
             return s
         speed_limit_unit_missing = "speed_limit_unit" not in raw
@@ -138,6 +156,20 @@ class Settings:
         changed = speed_limit_unit_missing
         if not s.rpc_secret or s.rpc_secret == _LEGACY_RPC_SECRET or len(s.rpc_secret) < 16:
             s.rpc_secret = _new_rpc_secret()
+            changed = True
+        if (
+            not isinstance(s.api_token, str)
+            or not s.api_token
+            or len(s.api_token) < 24
+            or s.api_token == s.rpc_secret
+        ):
+            s.api_token = _new_distinct_api_token(s.rpc_secret)
+            changed = True
+        if isinstance(s.api_port, bool) or not isinstance(s.api_port, int) or not 1 <= s.api_port <= 65535:
+            s.api_port = DEFAULT_API_PORT
+            changed = True
+        if not isinstance(s.api_enabled, bool):
+            s.api_enabled = True
             changed = True
         if s.speed_limit_unit not in ("KB/s", "MB/s"):
             s.speed_limit_unit = "KB/s"

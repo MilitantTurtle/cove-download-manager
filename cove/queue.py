@@ -339,7 +339,13 @@ class QueueManager(QObject):
         return self.settings.download_dir
 
     def add_url(
-        self, url: str, out_dir: str | None = None, filename: str | None = None
+        self,
+        url: str,
+        out_dir: str | None = None,
+        filename: str | None = None,
+        *,
+        connections: int | None = None,
+        speed_limit_kbps: int = 0,
     ) -> Optional[int]:
         url = url.strip()
         if not URL_RE.match(url):
@@ -374,9 +380,14 @@ class QueueManager(QObject):
             category = "Videos"
         else:
             category = categorize(url)
-            filename = None
+            requested_name = (filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+            requested_name = "".join(c for c in requested_name if ord(c) >= 32).strip()
+            filename = requested_name or None
+        effective_connections = (
+            self.settings.connections_per_server if connections is None else connections
+        )
         effective_connections = min(
-            max(int(self.settings.connections_per_server), 1), MAX_CONNECTIONS_PER_SERVER
+            max(int(effective_connections), 1), MAX_CONNECTIONS_PER_SERVER
         )
         if out_dir:
             dest_dir = out_dir
@@ -394,7 +405,7 @@ class QueueManager(QObject):
                     url,
                     dest_dir,
                     effective_connections,
-                    0,
+                    speed_limit_kbps,
                     "queued",
                     time.time(),
                     category,
@@ -408,8 +419,9 @@ class QueueManager(QObject):
             url=url,
             out_dir=dest_dir,
             connections=effective_connections,
+            speed_limit_kbps=speed_limit_kbps,
             backend=backend,
-            filename=filename if backend in {"ffmpeg", "yt-dlp"} else None,
+            filename=filename,
         )
         self.tasks[tid] = t
         self.task_added.emit(tid)
