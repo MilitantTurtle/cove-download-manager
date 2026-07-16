@@ -402,6 +402,10 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === "downloadStream") {
+    if (typeof msg.url !== "string" || !/^https?:\/\//i.test(msg.url)) {
+      sendResponse({ ok: false, error: "Unsupported stream URL" });
+      return;
+    }
     sendNativeMessage({
       action: "download",
       url: msg.url,
@@ -410,8 +414,13 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       cookies: "",
       fileSize: 0,
       userAgent: navigator.userAgent,
-    }).then(() => sendResponse({ ok: true }))
-      .catch((e) => sendResponse({ error: e.message }));
+    }).then((result) => {
+      if (result && result.status === "ok") {
+        sendResponse({ ok: true });
+      } else {
+        sendResponse({ ok: false, error: (result && result.message) || "Cove is unavailable" });
+      }
+    });
     return true;
   }
 });

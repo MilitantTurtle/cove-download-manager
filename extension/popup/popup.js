@@ -137,15 +137,20 @@ async function refreshStreams() {
       const btn = document.createElement("button");
       btn.className = "stream-download-btn";
       btn.textContent = "Download";
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", async () => {
         const filename = shortUrl.split("/").pop().replace(".m3u8", ".mp4") || "stream.mp4";
-        browser.runtime.sendMessage({
-          type: "downloadStream",
-          url: stream.url,
-          filename: filename,
-        });
-        btn.textContent = "Sent!";
+        btn.textContent = "Sending...";
         btn.disabled = true;
+        try {
+          const response = await browser.runtime.sendMessage({
+            type: "downloadStream",
+            url: stream.url,
+            filename: filename,
+          });
+          btn.textContent = response && response.ok ? "Sent!" : "Cove unavailable";
+        } catch {
+          btn.textContent = "Cove unavailable";
+        }
         setTimeout(() => { btn.textContent = "Download"; btn.disabled = false; }, 2000);
       });
 
