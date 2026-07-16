@@ -19,7 +19,7 @@ from PySide6.QtCore import QObject, QProcess, QRunnable, QThreadPool, QTimer, Si
 
 from . import db
 from .aria2 import Aria2Error, Aria2RPC
-from .config import Settings
+from .config import MAX_CONNECTIONS_PER_SERVER, Settings
 
 URL_RE = re.compile(r"https?://\S+|ftp://\S+|magnet:\?\S+")
 
@@ -272,6 +272,10 @@ class QueueManager(QObject):
                 speed = _int(dl.get("downloadSpeed"))
                 finished = time.time() if status in ("completed", "error") else None
 
+                effective_connections = min(
+                    max(int(self.settings.connections_per_server), 1),
+                    MAX_CONNECTIONS_PER_SERVER,
+                )
                 with db.connect() as conn:
                     cur = conn.execute(
                         """INSERT INTO downloads
@@ -280,13 +284,13 @@ class QueueManager(QObject):
                              completed_bytes, created_at, finished_at)
                         VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                         (url, filename, out_dir,
-                         self.settings.connections_per_server, 0,
+                         effective_connections, 0,
                          status, gid, total, completed, time.time(), finished),
                     )
                     tid = cur.lastrowid
                 t = DownloadTask(
                     id=tid, url=url, out_dir=out_dir,
-                    connections=self.settings.connections_per_server,
+                    connections=effective_connections,
                     filename=filename, gid=gid, status=status,
                     total_bytes=total, completed_bytes=completed,
                     download_speed=speed, finished_at=finished,
@@ -371,6 +375,9 @@ class QueueManager(QObject):
         else:
             category = categorize(url)
             filename = None
+        effective_connections = min(
+            max(int(self.settings.connections_per_server), 1), MAX_CONNECTIONS_PER_SERVER
+        )
         if out_dir:
             dest_dir = out_dir
         else:
@@ -386,7 +393,7 @@ class QueueManager(QObject):
                 (
                     url,
                     dest_dir,
-                    self.settings.connections_per_server,
+                    effective_connections,
                     0,
                     "queued",
                     time.time(),
@@ -400,7 +407,7 @@ class QueueManager(QObject):
             id=tid,
             url=url,
             out_dir=dest_dir,
-            connections=self.settings.connections_per_server,
+            connections=effective_connections,
             backend=backend,
             filename=filename if backend in {"ffmpeg", "yt-dlp"} else None,
         )

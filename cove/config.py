@@ -19,6 +19,8 @@ DB_FILE = DATA_DIR / "cove.db"
 ARIA2_SESSION = DATA_DIR / "aria2.session"
 ARIA2_LOG = DATA_DIR / "aria2.log"
 DEFAULT_DOWNLOAD_DIR = Path.home() / "Downloads"
+# Stock aria2 validates --max-connection-per-server in the range 1-16.
+MAX_CONNECTIONS_PER_SERVER = 16
 
 # Legacy default. Anything matching this on load is upgraded to a fresh
 # random secret so existing installs stop using the predictable token.
@@ -35,7 +37,7 @@ class ScheduleWindow:
     days: List[int] = field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])
 
 
-CONNECTION_CHOICES = (1, 2, 4, 8, 16, 24, 32)
+CONNECTION_CHOICES = (1, 2, 4, 8, MAX_CONNECTIONS_PER_SERVER)
 
 CATEGORY_NAMES = ("Documents", "Videos", "Music", "Archives", "Programs", "Images")
 
@@ -89,6 +91,7 @@ class Settings:
     max_concurrent: int = 1
     overall_speed_limit_kbps: int = 0
     speed_limiter_enabled: bool = False
+    speed_limit_unit: str = "KB/s"
     time_format_24h: bool = False  # default: 12-hour with AM/PM
     auto_update_check: bool = True
     delete_completed_on_exit: bool = False
@@ -123,6 +126,7 @@ class Settings:
             s.rpc_secret = _new_rpc_secret()
             s.save()
             return s
+        speed_limit_unit_missing = "speed_limit_unit" not in raw
         sched = ScheduleWindow(**raw.pop("schedule", {})) if "schedule" in raw else ScheduleWindow()
         cat = CategoryDirs(**raw.pop("category_dirs", {})) if "category_dirs" in raw else CategoryDirs()
         s = cls(**{k: v for k, v in raw.items() if k in cls.__annotations__})
@@ -131,8 +135,26 @@ class Settings:
         if s.theme not in ("dark", "light"):
             s.theme = "dark"
         # Migrate legacy / empty / suspiciously-short secrets up to a real one.
+        changed = speed_limit_unit_missing
         if not s.rpc_secret or s.rpc_secret == _LEGACY_RPC_SECRET or len(s.rpc_secret) < 16:
             s.rpc_secret = _new_rpc_secret()
+            changed = True
+        if s.speed_limit_unit not in ("KB/s", "MB/s"):
+            s.speed_limit_unit = "KB/s"
+            changed = True
+        if (
+            isinstance(s.connections_per_server, bool)
+            or not isinstance(s.connections_per_server, int)
+        ):
+            s.connections_per_server = MAX_CONNECTIONS_PER_SERVER
+            changed = True
+        elif s.connections_per_server < 1:
+            s.connections_per_server = 1
+            changed = True
+        elif s.connections_per_server > MAX_CONNECTIONS_PER_SERVER:
+            s.connections_per_server = MAX_CONNECTIONS_PER_SERVER
+            changed = True
+        if changed:
             s.save()
         return s
 

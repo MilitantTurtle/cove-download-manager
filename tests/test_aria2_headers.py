@@ -3,7 +3,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from cove.aria2 import Aria2RPC
-from cove.config import Settings
+from cove.config import MAX_CONNECTIONS_PER_SERVER, Settings
 
 
 def _make_rpc() -> Aria2RPC:
@@ -48,3 +48,13 @@ def test_add_uri_with_empty_headers():
         args = mock.call_args[0]
         opts = args[1][1]
         assert "header" not in opts
+
+
+def test_add_uri_caps_connections_for_stock_aria2():
+    rpc = _make_rpc()
+    with patch.object(rpc, "_call", return_value="gid-cap") as mock:
+        rpc.add_uri(["https://example.com/f.zip"], "/tmp", 32)
+        opts = mock.call_args[0][1][1]
+        expected = str(MAX_CONNECTIONS_PER_SERVER)
+        assert opts["split"] == expected
+        assert opts["max-connection-per-server"] == expected

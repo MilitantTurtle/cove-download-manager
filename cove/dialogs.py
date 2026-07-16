@@ -9,7 +9,9 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
+    QFrame,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -20,13 +22,20 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTimeEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 from .clipboard import extract_urls
 from .config import CATEGORY_NAMES, CONNECTION_CHOICES, ScheduleWindow, Settings
+from .speed_limit import (
+    SPEED_LIMIT_UNITS,
+    configure_speed_spin,
+    speed_value_to_kbps,
+)
 
 
 def _make_buttons(parent: QDialog, ok_text: str = "Save") -> QDialogButtonBox:
@@ -50,7 +59,7 @@ def _title_block(layout: QVBoxLayout, title: str, subtitle: str | None = None) -
 
 
 def _make_connections_combo(current: int) -> QComboBox:
-    """IDM-style connections dropdown (1, 2, 4, 8, 16, 24, 32)."""
+    """Connections dropdown capped to stock aria2's per-server maximum."""
     combo = QComboBox()
     for n in CONNECTION_CHOICES:
         combo.addItem(str(n), n)
@@ -267,6 +276,21 @@ class SettingsDialog(QDialog):
 
         _title_block(layout, "Settings", "Defaults applied to new downloads.")
 
+        # The settings form is taller than the usable desktop on many laptop
+        # and scaled displays. Keep the title and action buttons visible while
+        # allowing the form itself to shrink and scroll.
+        self.settings_scroll = QScrollArea(self)
+        self.settings_scroll.setObjectName("settingsScroll")
+        self.settings_scroll.setWidgetResizable(True)
+        self.settings_scroll.setFrameShape(QFrame.NoFrame)
+        self.settings_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(14)
+
         form = QFormLayout()
         form.setSpacing(10)
 
@@ -286,12 +310,27 @@ class SettingsDialog(QDialog):
         self.max_concurrent.setValue(settings.max_concurrent)
         form.addRow("Concurrent downloads", self.max_concurrent)
 
-        self.speed_limit = QSpinBox()
-        self.speed_limit.setRange(0, 1_000_000)
-        self.speed_limit.setSuffix(" KB/s")
-        self.speed_limit.setSpecialValueText("Unlimited")
-        self.speed_limit.setValue(settings.overall_speed_limit_kbps)
-        form.addRow("Global speed limit", self.speed_limit)
+        speed_row = QHBoxLayout()
+        self.speed_limit = QDoubleSpinBox()
+        self.speed_unit = QComboBox()
+        self.speed_unit.addItems(SPEED_LIMIT_UNITS)
+        self.speed_unit.setCurrentText(settings.speed_limit_unit)
+        self._speed_display_unit = settings.speed_limit_unit
+        self._speed_limit_kbps = settings.overall_speed_limit_kbps
+        configure_speed_spin(
+            self.speed_limit,
+            settings.speed_limit_unit,
+            settings.overall_speed_limit_kbps,
+        )
+        self.speed_limit.valueChanged.connect(self._on_speed_value_changed)
+        self.speed_unit.currentTextChanged.connect(self._on_speed_unit_changed)
+        speed_row.addWidget(self.speed_limit, 1)
+        speed_row.addWidget(self.speed_unit)
+        form.addRow("Global speed limit", speed_row)
+
+        self.speed_enabled = QCheckBox("Enable speed limiter")
+        self.speed_enabled.setChecked(settings.speed_limiter_enabled)
+        form.addRow("", self.speed_enabled)
 
         self.use_24h = QCheckBox("24-hour clock in scheduler")
         self.use_24h.setChecked(settings.time_format_24h)
@@ -322,7 +361,7 @@ class SettingsDialog(QDialog):
         self.notify_error.setChecked(settings.notify_on_error)
         form.addRow("", self.notify_error)
 
-        layout.addLayout(form)
+        scroll_layout.addLayout(form)
 
         # Proxy
         proxy_group = QGroupBox("Proxy")
@@ -355,7 +394,7 @@ class SettingsDialog(QDialog):
         self.proxy_note = QLabel("Restart Cove to apply proxy changes.")
         self.proxy_note.setProperty("role", "muted")
         proxy_lay.addRow(self.proxy_note)
-        layout.addWidget(proxy_group)
+        scroll_layout.addWidget(proxy_group)
         self._on_proxy_type_changed()
 
         # Category folders
@@ -384,7 +423,10 @@ class SettingsDialog(QDialog):
         cat_note = QLabel("Leave blank to use the default download folder.")
         cat_note.setProperty("role", "muted")
         cat_lay.addRow(cat_note)
-        layout.addWidget(cat_group)
+        scroll_layout.addWidget(cat_group)
+
+        self.settings_scroll.setWidget(scroll_content)
+        layout.addWidget(self.settings_scroll, 1)
 
         # Keep a direct reference to the button box rather than fishing it
         # back out of the layout by index (which breaks if layout order
@@ -393,6 +435,20 @@ class SettingsDialog(QDialog):
         layout.addWidget(bb)
         bb.accepted.disconnect()
         bb.accepted.connect(self._on_accept)
+
+        screen = self.screen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            width = max(320, min(900, available.width() - 80))
+            if width < self.minimumWidth():
+                self.setMinimumWidth(width)
+            height = min(
+                720,
+                max(self.minimumSizeHint().height(), available.height() - 80),
+            )
+            self.resize(width, height)
+        else:  # Defensive fallback for unusual headless Qt platforms.
+            self.resize(900, 640)
 
     def _browse(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Default download folder", self.dir_edit.text())
@@ -412,11 +468,26 @@ class SettingsDialog(QDialog):
         self.proxy_user.setEnabled(enabled)
         self.proxy_pass.setEnabled(enabled)
 
+    def _on_speed_unit_changed(self, unit: str) -> None:
+        self._speed_display_unit = unit
+        configure_speed_spin(
+            self.speed_limit,
+            unit,
+            self._speed_limit_kbps,
+        )
+
+    def _on_speed_value_changed(self, value: float) -> None:
+        self._speed_limit_kbps = speed_value_to_kbps(
+            value, self._speed_display_unit
+        )
+
     def _on_accept(self) -> None:
         self.settings.download_dir = self.dir_edit.text().strip() or self.settings.download_dir
         self.settings.connections_per_server = self.connections.currentData()
         self.settings.max_concurrent = self.max_concurrent.value()
-        self.settings.overall_speed_limit_kbps = self.speed_limit.value()
+        self.settings.overall_speed_limit_kbps = self._speed_limit_kbps
+        self.settings.speed_limiter_enabled = self.speed_enabled.isChecked()
+        self.settings.speed_limit_unit = self.speed_unit.currentText()
         self.settings.time_format_24h = self.use_24h.isChecked()
         self.settings.auto_update_check = self.auto_update.isChecked()
         self.settings.intelligent_segments = self.smart_segments.isChecked()

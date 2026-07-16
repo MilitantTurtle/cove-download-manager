@@ -1,4 +1,4 @@
-"""Tests for cove.db migrations - convert_mp3 column added additively."""
+"""Tests for additive cove.db migrations."""
 
 import sqlite3
 import time
@@ -57,3 +57,22 @@ def test_convert_mp3_round_trips(tmp_path):
         ).fetchall()
     assert bool(rows[0]["convert_mp3"]) is True
     assert bool(rows[1]["convert_mp3"]) is False
+
+
+def test_migration_caps_connections_for_stock_aria2(tmp_path):
+    path = tmp_path / "cove.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(db.SCHEMA)
+    conn.execute("PRAGMA user_version = 3")
+    conn.execute(
+        "INSERT INTO downloads (url, out_dir, connections, created_at) VALUES (?,?,?,?)",
+        ("https://example.com/large.bin", "/dl", 32, time.time()),
+    )
+    conn.commit()
+    conn.close()
+
+    db.init(path)
+
+    with db.connect(path) as conn:
+        row = conn.execute("SELECT connections FROM downloads").fetchone()
+    assert row["connections"] == 16

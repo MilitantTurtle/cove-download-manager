@@ -15,7 +15,7 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
 
 ## Features
 
-- **1-32 connections per file** - IDM-style dropdown (1, 2, 4, 8, 16, 24, 32),
+- **1-16 connections per file** - dropdown choices of 1, 2, 4, 8, or 16,
   default 16. Per-file segmenting handled by aria2.
 - **Concurrent queue** - 1-16 parallel downloads. Default 1; bump to 2-4
   for small files.
