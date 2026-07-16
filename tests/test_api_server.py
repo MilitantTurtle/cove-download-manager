@@ -443,10 +443,17 @@ def test_windows_packaging_explicitly_includes_api_server_and_client():
     wine_script = root / "scripts" / "build-windows-wine.sh"
     native_script = root / "scripts" / "build-windows.ps1"
     workflow = root / ".github" / "workflows" / "release.yml"
-    assert "--hidden-import cove.api_server" in wine_script.read_text(encoding="utf-8")
-    assert "--hidden-import\", \"cove.api_server" in native_script.read_text(encoding="utf-8")
+    wine_text = wine_script.read_text(encoding="utf-8")
+    native_text = native_script.read_text(encoding="utf-8")
+    assert "--hidden-import cove.api_server" in wine_text
+    assert "--hidden-import\", \"cove.api_server" in native_text
+    assert '--add-binary "${YTDLP_EXE};."' in wine_text
+    assert '"--add-binary", "$YtDlpExe;."' in native_text
+    assert "COVE_YTDLP_EXE" in native_text
+    assert "yt-dlp/releases/latest/download/yt-dlp.exe" in native_text
     workflow_text = workflow.read_text(encoding="utf-8")
     assert workflow_text.count("--hidden-import cove.api_server") == 2
+    assert workflow_text.count('--add-binary "build/yt-dlp-win/yt-dlp.exe;."') == 2
     assert "Cove-AI-Client-${{ steps.ver.outputs.version }}.zip" in workflow_text
     for name in (
         "cove_api.py",
@@ -457,5 +464,5 @@ def test_windows_packaging_explicitly_includes_api_server_and_client():
         "AI_DIRECT_API_OPERATING_RULES.md",
     ):
         assert (root / "tools" / "cove-api" / name).is_file()
-        assert name in native_script.read_text(encoding="utf-8")
+        assert name in native_text
         assert name in workflow_text

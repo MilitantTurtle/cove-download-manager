@@ -321,13 +321,15 @@ jobs:
           VERSION="${{ steps.ver.outputs.version }}"
           NOTES_FILE="$(mktemp)"
           cat > "$NOTES_FILE" <<'NOTESEOF'
-          ## What's new in 1.9.0
+          ## What's new in VERSION
 
           - Added browser extension downloads for YouTube videos through Cove's native messaging bridge.
           - Kept the Download with Cove pill visible during playback, including direct old Reddit video pages.
           - Added page title based filenames for browser initiated downloads.
           - Improved direct video and HLS detection, download handoff reliability, and unavailable video errors.
           - Added an extension setting to enable or disable the in-page download pill.
+          - Bundled yt-dlp in every Windows build.
+          - Removed the mistakenly added MP3 conversion feature to stay aligned with upstream.
 
           ## Downloads
 

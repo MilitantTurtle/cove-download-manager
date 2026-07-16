@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.9.1 - 2026-07-16
+
+### Added
+
+- YouTube watch, Shorts, live, and embedded-page downloads through the browser
+  extension and Cove's native messaging bridge, using `yt-dlp`.
+- Improved in-page video detection for active playback, embedded frames, HLS,
+  and direct old Reddit video pages.
+- An extension setting to enable or disable the in-page download pill.
+- Bundled `yt-dlp.exe` in native, Wine, and GitHub Windows builds so the new
+  video extraction path works without a separate installation.
+
+### Changed
+
+- Browser-initiated video downloads now use safer page-title-based filenames.
+- Chrome extension metadata is now version 1.3.0 and Firefox is version 1.4.0.
+- Firefox extension minimums are now desktop 140 and Android 142.
+- MP3 post-download conversion was removed to stay aligned with upstream; an
+  audio-download mode can be added separately later if needed.
+
+### Fixed
+
+- Browser extension popup content is built with safe DOM APIs rather than
+  interpolated HTML.
+- Improved video-pill visibility, stream refresh, handoff reliability, and
+  unavailable-video reporting.
+
+### Validation
+
+- Full Python suite: 152 tests and 7 subtests passed.
+- Extension JavaScript and both manifests passed syntax validation.
+
 ## 1.9.0 - 2026-07-14
 
 ### Added

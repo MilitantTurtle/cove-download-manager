@@ -7,7 +7,7 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
 ![Python](https://img.shields.io/badge/python-3.10%2B-orange?style=flat-square&logo=python)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux-informational?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/release-v1.9.0-5eead4?style=flat-square)
+![Version](https://img.shields.io/badge/release-v1.9.1-5eead4?style=flat-square)
 
 ![Cove Download Manager](docs/screenshot.png)
 
@@ -92,7 +92,8 @@ Two builds on the [Releases](https://github.com/MilitantTurtle/cove-download-man
 - **`Cove-Download-Manager-<version>-Portable.exe`** - single-file build.
   No install, nothing in the registry, runs from anywhere.
 
-Both Windows builds bundle `aria2c.exe`, no system aria2 required.
+Both Windows builds bundle `aria2c.exe` and `yt-dlp.exe`, so direct downloads
+and YouTube extraction work without system installs of either tool.
 
 > On first launch, Windows SmartScreen may show a warning because the
 > `.exe` isn't code-signed. Click **More info** then **Run anyway**.
@@ -325,7 +326,9 @@ pip install -r requirements.txt
 ```
 
 Artifacts land in `release/` with matching `.sha256` sidecars. Windows builds
-also stage `Cove-AI-Client-<version>.zip`.
+also stage `Cove-AI-Client-<version>.zip`. The native Windows builder downloads
+the official `yt-dlp.exe` automatically when it is not already under
+`build\yt-dlp-win`; use `-YtDlpExe PATH` or `COVE_YTDLP_EXE` to supply one.
 
 ---
 

@@ -1,6 +1,7 @@
 param(
     [string]$Python = "python",
     [string]$Aria2Exe = "",
+    [string]$YtDlpExe = "",
     [string]$ArtifactLabel = "",
     [switch]$Setup
 )
@@ -43,6 +44,39 @@ if (-not (Test-Path -LiteralPath $Aria2Exe -PathType Leaf)) {
     throw "aria2c.exe was not found. Pass -Aria2Exe PATH or set COVE_ARIA2_EXE."
 }
 
+$YtDlpWasProvided = -not [string]::IsNullOrWhiteSpace($YtDlpExe)
+if (-not $YtDlpWasProvided) {
+    $YtDlpExe = $env:COVE_YTDLP_EXE
+    $YtDlpWasProvided = -not [string]::IsNullOrWhiteSpace($YtDlpExe)
+}
+if (-not $YtDlpWasProvided) {
+    $YtDlpExe = Join-Path $Root "build\yt-dlp-win\yt-dlp.exe"
+}
+$YtDlpExe = [IO.Path]::GetFullPath($YtDlpExe)
+if (-not (Test-Path -LiteralPath $YtDlpExe -PathType Leaf)) {
+    if ($YtDlpWasProvided) {
+        throw "yt-dlp.exe was not found at the supplied path: $YtDlpExe"
+    }
+    $YtDlpDir = Split-Path -Parent $YtDlpExe
+    New-Item -ItemType Directory -Force -Path $YtDlpDir | Out-Null
+    $YtDlpDownload = "$YtDlpExe.download"
+    Write-Output "Downloading yt-dlp.exe"
+    try {
+        Invoke-WebRequest `
+            -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" `
+            -OutFile $YtDlpDownload
+        Move-Item -LiteralPath $YtDlpDownload -Destination $YtDlpExe -Force
+    }
+    finally {
+        if (Test-Path -LiteralPath $YtDlpDownload) {
+            Remove-Item -LiteralPath $YtDlpDownload -Force
+        }
+    }
+}
+if (-not (Test-Path -LiteralPath $YtDlpExe -PathType Leaf)) {
+    throw "yt-dlp.exe was not found. Pass -YtDlpExe PATH or set COVE_YTDLP_EXE."
+}
+
 & $Python -c "import PIL, PyInstaller, PySide6, requests" | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw "Build Python is missing Pillow, PyInstaller, PySide6, or requests."
@@ -64,6 +98,7 @@ $CommonArgs = @(
     "--paths", ".",
     "--add-data", "cove_icon.png;cove",
     "--add-binary", "$Aria2Exe;.",
+    "--add-binary", "$YtDlpExe;.",
     "--hidden-import", "cove",
     "--hidden-import", "cove.app",
     "--hidden-import", "cove.api_server",
