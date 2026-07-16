@@ -48,44 +48,58 @@ document.getElementById("open-options").addEventListener("click", () => {
   browser.runtime.openOptionsPage();
 });
 
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 function renderDownloads(downloads) {
+  downloadsList.replaceChildren();
+
   if (!downloads || downloads.length === 0) {
-    downloadsList.innerHTML = '<div class="empty-state">No active downloads</div>';
+    const emptyState = document.createElement("div");
+    emptyState.className = "empty-state";
+    emptyState.textContent = "No active downloads";
+    downloadsList.appendChild(emptyState);
     return;
   }
 
-  downloadsList.innerHTML = downloads
-    .map((dl) => {
-      const files = dl.files || [];
-      const rawName = files[0]?.path?.split("/").pop() || "Unknown";
-      const filename = escapeHtml(rawName);
-      const total = parseInt(dl.totalLength || 0);
-      const completed = parseInt(dl.completedLength || 0);
-      const speed = parseInt(dl.downloadSpeed || 0);
-      const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  for (const dl of downloads) {
+    const files = dl.files || [];
+    const filename = files[0]?.path?.split("/").pop() || "Unknown";
+    const total = parseInt(dl.totalLength || 0);
+    const completed = parseInt(dl.completedLength || 0);
+    const speed = parseInt(dl.downloadSpeed || 0);
+    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-      return `
-        <div class="download-item">
-          <div class="download-filename" title="${filename}">${filename}</div>
-          <div class="download-progress">
-            <div class="progress-bar">
-              <div class="progress-fill" style="width: ${pct}%"></div>
-            </div>
-            <span class="download-speed">${formatSpeed(speed)}</span>
-          </div>
-          <div class="download-meta">
-            <span>${pct}% - ${formatBytes(completed)} / ${formatBytes(total)}</span>
-          </div>
-        </div>
-      `;
-    })
-    .join("");
+    const item = document.createElement("div");
+    item.className = "download-item";
+
+    const filenameElement = document.createElement("div");
+    filenameElement.className = "download-filename";
+    filenameElement.title = filename;
+    filenameElement.textContent = filename;
+
+    const progress = document.createElement("div");
+    progress.className = "download-progress";
+
+    const progressBar = document.createElement("div");
+    progressBar.className = "progress-bar";
+
+    const progressFill = document.createElement("div");
+    progressFill.className = "progress-fill";
+    progressFill.style.width = `${pct}%`;
+    progressBar.appendChild(progressFill);
+
+    const speedElement = document.createElement("span");
+    speedElement.className = "download-speed";
+    speedElement.textContent = formatSpeed(speed);
+    progress.append(progressBar, speedElement);
+
+    const meta = document.createElement("div");
+    meta.className = "download-meta";
+    const metaText = document.createElement("span");
+    metaText.textContent = `${pct}% - ${formatBytes(completed)} / ${formatBytes(total)}`;
+    meta.appendChild(metaText);
+
+    item.append(filenameElement, progress, meta);
+    downloadsList.appendChild(item);
+  }
 }
 
 async function refreshDownloads() {
@@ -108,7 +122,7 @@ async function refreshStreams() {
     }
 
     section.style.display = "block";
-    list.innerHTML = "";
+    list.replaceChildren();
 
     for (const stream of streams) {
       const item = document.createElement("div");

@@ -30,14 +30,9 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
 - **Delete key + right-click menu** - remove selected, clear completed,
   clear all. Multi-select aware. File deletion is opt-in per row. The
   context menu also covers Open file, Show in folder, Start now
-  (force-start, jumps the queue), Retry on errored tasks, and Convert to
-  MP3 on completed non-MP3 files.
+  (force-start, jumps the queue), and Retry on errored tasks.
 - **Resumable** - queue state persists in SQLite, partial downloads resume
   via aria2's control files. Closing the app does not lose work.
-- **Convert to MP3** - check "Convert to MP3 after download" when adding a
-  download, or right-click any completed file later. Runs `ffmpeg`
-  (must be on `PATH`) with `libmp3lame`, keeps metadata, tags a
-  `Source: <url>` comment, and never overwrites an existing file.
 - **HLS / M3U8 stream downloads** - any URL ending in `.m3u8` is
   automatically routed through an `ffmpeg`-backed downloader instead of
   aria2, no configuration needed. Pause/resume aren't available for these
@@ -55,9 +50,9 @@ PySide6 for the UI. Same look as the rest of the Cove suite.
   [Browser Extension](#browser-extension).
 - **Official local API** - authenticated loopback API plus an optional
   command-line client designed for AI agents and local automation.
-- **In-page video pill** - hover a video on any page and a floating
-  "Download with Cove" pill appears; one click sends the media to Cove.
-  Direct MP4/WebM everywhere, detected HLS (M3U8) streams on Firefox.
+- **In-page video pill** - a floating "Download with Cove" pill appears on
+  video players while hovering or playing; one click sends the media to Cove.
+  Supports direct MP4/WebM, detected HLS (M3U8), old Reddit posts, and YouTube.
 - **Frameless cove UI** - custom titlebar, mint accent, light and dark
   palettes. Dragging via `startSystemMove`, edge-resize via
   `startSystemResize`, both Wayland-safe.
@@ -86,7 +81,7 @@ sudo dpkg -i cove-download-manager_<version>_amd64.deb
 sudo apt -f install   # if dependencies are missing
 ```
 
-The `.deb` declares `Depends: aria2`, so apt pulls it in for you.
+The `.deb` declares `Depends: aria2, yt-dlp`, so apt pulls both in for you.
 
 ### Windows
 
@@ -160,14 +155,15 @@ and user-agent headers so authenticated downloads work seamlessly.
 
 ### In-page video pill
 
-Hover a `<video>` player on any page and a small floating "Download with
-Cove" pill appears in its top-right corner. Clicking it sends the media
-URL to Cove with the page's cookies and referrer. Direct `http(s)` video
-sources work in both browsers; on Firefox the pill also picks up HLS
-(M3U8) streams the extension detected for the tab. Nothing downloads
-automatically - the pill only acts on an explicit click, and unsupported
-media (DRM, blob-only players with no detected stream) simply shows no
-pill.
+Hover or play a `<video>` on any page and a small floating "Download with
+Cove" pill appears in its top-right corner. It remains available during
+playback, including on direct old Reddit post pages. Clicking it sends the
+media URL, page title, cookies, and referrer to Cove so downloads receive a
+useful filename. Direct `http(s)` video sources work in both browsers;
+Firefox also detects HLS (M3U8) streams for the tab. YouTube watch pages are
+handed to Cove for extraction with yt-dlp. The pill can be disabled in the
+extension settings. Nothing downloads automatically; it only acts on an
+explicit click, and DRM-protected media remains unsupported.
 
 ---
 
@@ -342,7 +338,6 @@ cove-download-manager/
 │   ├── aria2.py                 #   aria2c lifecycle + JSON-RPC client
 │   ├── clipboard.py             #   URL extractor for "Add from clipboard"
 │   ├── config.py                #   JSON-backed Settings + ScheduleWindow
-│   ├── convert.py               #   post-download MP3 conversion via ffmpeg
 │   ├── db.py                    #   SQLite schema + connection helper
 │   ├── dialogs.py               #   Add / Schedule / Settings / batch picker
 │   ├── entry.py                 #   CLI entry point

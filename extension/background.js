@@ -28,6 +28,7 @@ const DEFAULT_SETTINGS = {
     ".deb", ".rpm", ".appimage",
   ],
   excludedDomains: [],
+  mediaPillEnabled: true,
 };
 
 let settings = { ...DEFAULT_SETTINGS };
@@ -392,6 +393,10 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
     return true;
   }
+  if (msg.type === "getExtractorPageUrl") {
+    sendResponse({ url: extractorPageUrl(sender.tab && sender.tab.url) });
+    return;
+  }
   if (msg.type === "downloadMedia") {
     handleMediaTabDownload(msg, sender).then(sendResponse);
     return true;
@@ -413,10 +418,56 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // ---- Media-tab (in-page pill) download ----
 
+function extractorPageUrl(value) {
+  try {
+    const url = new URL(value || "");
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    if (host === "youtu.be" && url.pathname.length > 1) return url.href;
+    if (!["youtube.com", "m.youtube.com", "music.youtube.com"].includes(host)) return "";
+    if (url.pathname === "/watch" && url.searchParams.get("v")) return url.href;
+    if (/^\/(?:shorts|live|embed)\/[^/]+/.test(url.pathname)) return url.href;
+  } catch {}
+  return "";
+}
+
+function mediaFilename(tab, mediaUrl) {
+  let title = (tab && tab.title ? tab.title : "").trim();
+
+  // old.reddit titles end in the subreddit name (for example
+  // "AI could never : funny"). Keep only the post title.
+  try {
+    const pageUrl = new URL(tab.url);
+    const match = pageUrl.pathname.match(/^\/r\/([^/]+)\/comments\//i);
+    if (match) {
+      const subreddit = match[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      title = title.replace(new RegExp(`\\s*:\\s*(?:r\\/)?${subreddit}\\s*$`, "i"), "");
+    }
+    if (/(^|\.)youtube\.com$/i.test(pageUrl.hostname)) {
+      title = title.replace(/\s*-\s*YouTube\s*$/i, "");
+    }
+  } catch {}
+
+  title = title
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/[. ]+$/g, "")
+    .trim()
+    .slice(0, 180);
+
+  let extension = ".mp4";
+  try {
+    const match = new URL(mediaUrl).pathname.match(/\.([a-z0-9]{2,5})$/i);
+    if (match && match[1].toLowerCase() !== "m3u8") extension = `.${match[1]}`;
+  } catch {}
+
+  return title ? `${title}${extension}` : null;
+}
+
 // Explicit user click on the in-page Cove pill. Routes through the same
 // native "download" action as interception and the context menu.
 async function handleMediaTabDownload(msg, sender) {
-  const url = msg.url || "";
+  const url = extractorPageUrl(sender.tab && sender.tab.url) ||
+    extractorPageUrl(msg.pageUrl) || msg.url || "";
   if (!/^https?:\/\//i.test(url)) {
     return { ok: false, error: "Unsupported URL" };
   }
@@ -431,12 +482,14 @@ async function handleMediaTabDownload(msg, sender) {
     cookieStr = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
   } catch {}
 
-  let filename = null;
-  try {
-    const pathname = new URL(url).pathname;
-    const last = pathname.split("/").pop();
-    if (last && last.includes(".")) filename = decodeURIComponent(last);
-  } catch {}
+  let filename = mediaFilename(sender.tab, url);
+  if (!filename) {
+    try {
+      const pathname = new URL(url).pathname;
+      const last = pathname.split("/").pop();
+      if (last && last.includes(".")) filename = decodeURIComponent(last);
+    } catch {}
+  }
 
   const referrer = msg.pageUrl || (sender.tab && sender.tab.url) || "";
 
