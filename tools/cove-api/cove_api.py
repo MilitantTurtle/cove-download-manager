@@ -131,6 +131,13 @@ def load_settings(explicit: str | None = None) -> LoadedSettings:
 
     if not isinstance(values, dict):
         raise CoveApiError("settings_invalid", "Cove settings must contain a JSON object.", exit_code=2)
+    if values.get("api_enabled") is False:
+        raise CoveApiError(
+            "api_disabled",
+            "Cove's local API is disabled in settings. Enable it in Cove before using this client.",
+            details={"path": str(selected)},
+            exit_code=2,
+        )
     token = values.get("api_token")
     port = values.get("api_port", 17681)
     if not isinstance(token, str) or len(token) < 24:
@@ -220,6 +227,8 @@ def validate_url(value: str) -> str:
     value = value.strip()
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
         raise CoveApiError("invalid_url", "Control characters are not allowed in URLs.", exit_code=5)
+    if any(char.isspace() for char in value):
+        raise CoveApiError("invalid_url", "Whitespace is not allowed in URLs.", exit_code=5)
     try:
         parsed = urlsplit(value)
     except ValueError as exc:
@@ -388,7 +397,14 @@ class CoveHttpClient:
                 server_error = {}
             code = server_error.get("code") or "api_http_error"
             message = server_error.get("message") or f"Cove's local API returned HTTP {exc.code}."
-            exit_code = 5 if exc.code in {400, 411, 413, 415, 422} else 4
+            # 5: caller input problem. 3: transient server condition worth a
+            # retry (matches the documented not-ready category). 4: rejected.
+            if exc.code in {400, 411, 413, 415, 422}:
+                exit_code = 5
+            elif exc.code in {408, 500, 503}:
+                exit_code = 3
+            else:
+                exit_code = 4
             raise CoveApiError(code, message, details={"http_status": exc.code}, exit_code=exit_code) from exc
         except (urlerror.URLError, TimeoutError, ConnectionError) as exc:
             raise CoveApiError(
@@ -620,7 +636,9 @@ def command_add(
 
 
 def command_list(args: argparse.Namespace, client: CoveHttpClient) -> dict[str, Any]:
-    downloads = client.request("GET", "/downloads")["downloads"][: args.limit]
+    # The API returns tasks oldest-first; keep the tail so the newest tasks
+    # (including one an agent just added) survive the limit.
+    downloads = client.request("GET", "/downloads")["downloads"][-args.limit :]
     return {
         "ok": True,
         "command": "list",

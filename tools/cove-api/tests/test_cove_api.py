@@ -96,6 +96,19 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, "settings_invalid")
 
 
+    def test_rejects_disabled_api(self):
+        with tempfile.TemporaryDirectory() as root:
+            settings_path = Path(root) / "settings.json"
+            settings_path.write_text(
+                json.dumps({"api_token": "x" * 43, "api_port": 17681, "api_enabled": False}),
+                encoding="utf-8",
+            )
+            with self.assertRaises(cove_api.CoveApiError) as caught:
+                cove_api.load_settings(str(settings_path))
+            self.assertEqual(caught.exception.code, "api_disabled")
+            self.assertEqual(caught.exception.exit_code, 2)
+
+
 class ExecutableDiscoveryTests(unittest.TestCase):
     def test_source_client_finds_portable_in_repository_release_directory(self):
         with tempfile.TemporaryDirectory() as root:
@@ -375,6 +388,54 @@ class CoveStartupTests(unittest.TestCase):
             with patch.object(cove_api.subprocess, "Popen") as popen, patch.object(cove_api.time, "sleep"):
                 self.assertTrue(cove_api.ensure_cove_running(StartingClient(), config))
             popen.assert_called_once()
+
+
+class ValidationDriftTests(unittest.TestCase):
+    def test_rejects_whitespace_in_url_like_the_server(self):
+        with self.assertRaises(cove_api.CoveApiError) as caught:
+            cove_api.validate_url("https://example.com/a b")
+        self.assertEqual(caught.exception.code, "invalid_url")
+
+
+class ListCommandTests(unittest.TestCase):
+    def test_limit_keeps_the_newest_tasks(self):
+        class FakeClient:
+            def request(self, method, path, payload=None):
+                return {
+                    "downloads": [
+                        {"task_id": i, "status": "completed"} for i in range(1, 151)
+                    ]
+                }
+
+        result = cove_api.command_list(SimpleNamespace(limit=100), FakeClient())
+        task_ids = [d["task_id"] for d in result["downloads"]]
+        self.assertEqual(len(task_ids), 100)
+        self.assertIn(150, task_ids)
+        self.assertNotIn(1, task_ids)
+
+
+class TransientErrorTests(unittest.TestCase):
+    def test_bridge_timeout_maps_to_retryable_exit_code(self):
+        import io
+        from urllib import error as urlerror
+
+        body = json.dumps(
+            {"ok": False, "error": {"code": "bridge_timeout", "message": "busy"}}
+        ).encode("utf-8")
+        http_error = urlerror.HTTPError(
+            "http://127.0.0.1:17681/api/v1/downloads", 503, "Service Unavailable",
+            {}, io.BytesIO(body),
+        )
+
+        settings = cove_api.LoadedSettings(
+            Path("settings.json"), {"api_port": 17681, "api_token": "x" * 43}
+        )
+        client = cove_api.CoveHttpClient(settings, 1.0)
+        with patch.object(cove_api.urlrequest, "urlopen", side_effect=http_error):
+            with self.assertRaises(cove_api.CoveApiError) as caught:
+                client.request("GET", "/downloads")
+        self.assertEqual(caught.exception.code, "bridge_timeout")
+        self.assertEqual(caught.exception.exit_code, 3)
 
 
 class ControlCommandTests(unittest.TestCase):
