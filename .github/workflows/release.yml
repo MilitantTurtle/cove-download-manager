@@ -321,13 +321,32 @@ jobs:
           VERSION="${{ steps.ver.outputs.version }}"
           NOTES_FILE="$(mktemp)"
           cat > "$NOTES_FILE" <<'NOTESEOF'
-          ## What's new in 1.9.0
+          ## What's new in 2.0.0
 
-          - Added browser extension downloads for YouTube videos through Cove's native messaging bridge.
-          - Kept the Download with Cove pill visible during playback, including direct old Reddit video pages.
-          - Added page title based filenames for browser initiated downloads.
-          - Improved direct video and HLS detection, download handoff reliability, and unavailable video errors.
-          - Added an extension setting to enable or disable the in-page download pill.
+          ### Added
+
+          - Official authenticated local API on 127.0.0.1 for adding, listing, inspecting, pausing, resuming, and safely cancelling downloads, with optional per-download destination, filename, connection count, and speed limit.
+          - Dependency-free AI command-line client for Windows (`Cove-AI-Client-VERSION.zip`) with stable JSON output, automatic Cove startup, and operating instructions for both the wrapper and direct API integration.
+          - Speed limiter now offers KB/s and MB/s presentation with a clear enable control and immediate application.
+          - Native PowerShell Windows build script (`scripts/build-windows.ps1`) alongside the existing Wine and CI build paths.
+
+          ### Changed
+
+          - Settings dialog scrolls vertically and sizes itself to the available screen, keeping every control reachable on short displays.
+          - Per-file connections are capped at stock aria2's supported maximum of 16; saved settings and queued downloads are migrated automatically.
+          - The global speed limit is only applied at startup when the limiter is enabled.
+          - Windows portable builds keep their data beside the executable from the very first launch.
+
+          ### Fixed
+
+          - The API refuses per-download connection and speed limit options for video and stream URLs that the ffmpeg and yt-dlp backends cannot honor.
+          - API requests that time out can no longer mutate the download queue after failure was reported, and the API only starts accepting requests once aria2 is ready.
+          - The browser extension reports stream download failures in the popup instead of showing a false success, including when the native host is unreachable.
+          - Browser extension release versions were corrected to the extension's own version line (Firefox 1.4.0, Chrome 1.3.0).
+
+          ### Credits
+
+          - Huge thanks to @MilitantTurtle for the local API, the AI client, the Windows build tooling, and many of the reliability fixes in this release.
 
           ## Downloads
 
