@@ -321,32 +321,44 @@ jobs:
           VERSION="${{ steps.ver.outputs.version }}"
           NOTES_FILE="$(mktemp)"
           cat > "$NOTES_FILE" <<'NOTESEOF'
-          ## What's new in 2.0.0
+          ## What's new in 2.0.1
 
-          ### Added
+          Maintenance release fixing bugs found in a full-codebase audit.
 
-          - Official authenticated local API on 127.0.0.1 for adding, listing, inspecting, pausing, resuming, and safely cancelling downloads, with optional per-download destination, filename, connection count, and speed limit.
-          - Dependency-free AI command-line client for Windows (`Cove-AI-Client-VERSION.zip`) with stable JSON output, automatic Cove startup, and operating instructions for both the wrapper and direct API integration.
-          - Speed limiter now offers KB/s and MB/s presentation with a clear enable control and immediate application.
-          - Native PowerShell Windows build script (`scripts/build-windows.ps1`) alongside the existing Wine and CI build paths.
+          ### Fixed - downloads and queue
 
-          ### Changed
+          - Pausing a yt-dlp or ffmpeg video download now actually stops the process. Previously it kept downloading while showing "Paused", and resuming started a second copy of the same download.
+          - Retry now works for failed aria2 downloads. Previously they could get stuck in "Queued" forever.
+          - If ffmpeg or yt-dlp fails to start (missing or broken binary), the task is marked as errored instead of hanging in "Active" with no way out.
+          - Stopping the queue (or a scheduler window closing) while a download was still being handed to aria2 no longer leaves it downloading in the background while shown as paused.
+          - A failed resume no longer leaves an orphaned download inside aria2 that could reappear later as a duplicate entry.
+          - ffmpeg failure messages now show the actual last lines of output instead of a partial chunk.
+          - Video downloads into folders containing a % character no longer produce broken filenames.
+          - Video downloads queued from the browser extension are no longer silently lost if adding them fails, and two arriving in the same millisecond no longer overwrite each other.
 
-          - Settings dialog scrolls vertically and sizes itself to the available screen, keeping every control reachable on short displays.
-          - Per-file connections are capped at stock aria2's supported maximum of 16; saved settings and queued downloads are migrated automatically.
-          - The global speed limit is only applied at startup when the limiter is enabled.
-          - Windows portable builds keep their data beside the executable from the very first launch.
+          ### Fixed - configuration and startup
 
-          ### Fixed
+          - A corrupted settings.json (wrong JSON type, malformed schedule or category entries, invalid rpc_port) no longer crashes the app at startup; settings are repaired automatically.
+          - Empty XDG_CONFIG_HOME or XDG_DATA_HOME environment variables no longer make Cove write its config and database into the current working directory.
+          - Browser integration setup (Flatpak overrides) no longer runs before the window appears, so a slow flatpak can no longer delay startup.
+          - The updater rejects SHA-1/SHA-224 digests where SHA-256 is required and cleans up partial files if an update swap fails midway.
 
-          - The API refuses per-download connection and speed limit options for video and stream URLs that the ffmpeg and yt-dlp backends cannot honor.
-          - API requests that time out can no longer mutate the download queue after failure was reported, and the API only starts accepting requests once aria2 is ready.
-          - The browser extension reports stream download failures in the popup instead of showing a false success, including when the native host is unreachable.
-          - Browser extension release versions were corrected to the extension's own version line (Firefox 1.4.0, Chrome 1.3.0).
+          ### Fixed - browser extension and native host
+
+          - The native messaging host no longer crashes (silently dropping the download) on malformed messages or disk errors; it now reports an error to the extension instead.
+          - Clearing the minimum-size field in the extension options no longer silently disables the size filter.
+          - The popup now formats sizes of 1 TB and above correctly and no longer logs an error every 2 seconds while the background worker restarts.
+          - A malformed native host response can no longer leave an intercepted download in limbo.
+
+          ### Fixed - other
+
+          - Switching the speed limiter display unit from MB/s to KB/s no longer silently clamps high limits.
+          - build.sh now cleans stale build directories correctly on non-x86_64 machines.
+          - AI client: corrected a misleading timeout validation message.
 
           ### Credits
 
-          - Huge thanks to @MilitantTurtle for the local API, the AI client, the Windows build tooling, and many of the reliability fixes in this release.
+          - Thank you GLM for catching the bugs fixed in this release.
 
           ## Downloads
 
