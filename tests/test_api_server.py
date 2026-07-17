@@ -282,6 +282,34 @@ def test_qt_bridge_executes_add_on_queue_owning_thread():
     assert result["download"]["task_id"] == 1
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://cdn.example.com/stream/master.m3u8",
+        "https://www.youtube.com/watch?v=abc123",
+    ],
+)
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"connections": 4},
+        {"speed_limit_kbps": 500},
+        {"speed_limit_kbps": 0},  # explicit zero is still an explicit option
+    ],
+)
+def test_add_rejects_explicit_per_download_limits_for_video_backends(url, overrides):
+    with pytest.raises(ApiProblem) as caught:
+        validate_add_payload({"url": url, **overrides})
+    assert caught.value.code == "unsupported_for_backend"
+    assert caught.value.status == 400
+
+
+def test_add_allows_video_urls_without_explicit_limits():
+    validated = validate_add_payload({"url": "https://cdn.example.com/stream/master.m3u8"})
+    assert validated["connections"] is None
+    assert validated["speed_limit_kbps"] == 0
+
+
 def test_bridge_cancel_never_deletes_and_hides_inflight_task_immediately():
     QCoreApplication.instance() or QCoreApplication([])
 

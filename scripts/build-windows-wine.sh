@@ -175,9 +175,22 @@ PORT_DEST="$RELEASE_DIR/${DISPLAY_NAME// /-}-${VERSION}-Portable.exe"
 rm -f "$PORT_DEST"
 cp -f "$PORT_SRC" "$PORT_DEST"
 
-# SHA-256 sidecars for both Windows artifacts.
+# ---------------------------------------------------------------- 8. AI client ZIP
+# Same artifact the native PowerShell build and the release workflow produce.
+CLIENT_STAGE="$ROOT/build/client-stage/cove-api"
+rm -rf "$CLIENT_STAGE"
+mkdir -p "$CLIENT_STAGE"
+for name in cove-api.cmd cove_api.py wrapper_config.json README.md \
+    AI_WRAPPER_OPERATING_RULES.md AI_DIRECT_API_OPERATING_RULES.md; do
+    cp -f "$ROOT/tools/cove-api/$name" "$CLIENT_STAGE/"
+done
+CLIENT_ZIP="$RELEASE_DIR/Cove-AI-Client-${VERSION}.zip"
+rm -f "$CLIENT_ZIP"
+(cd "$CLIENT_STAGE" && python3 -m zipfile -c "$CLIENT_ZIP" ./*)
+
+# SHA-256 sidecars for all Windows artifacts.
 SETUP_DEST="$RELEASE_DIR/${DISPLAY_NAME// /-}-${VERSION}-Setup.exe"
-for f in "$SETUP_DEST" "$PORT_DEST"; do
+for f in "$SETUP_DEST" "$PORT_DEST" "$CLIENT_ZIP"; do
     [ -f "$f" ] && (cd "$(dirname "$f")" && sha256sum "$(basename "$f")" > "$(basename "$f").sha256")
 done
 

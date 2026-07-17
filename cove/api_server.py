@@ -150,8 +150,22 @@ def validate_add_payload(payload: Any) -> dict[str, Any]:
     create = payload.get("create_directory", False)
     if not isinstance(create, bool):
         raise _problem(400, "invalid_create_directory", "create_directory must be a boolean.")
+    url = validate_url(payload.get("url"))
+    if "connections" in payload or "speed_limit_kbps" in payload:
+        # ffmpeg/yt-dlp downloads never receive per-download connection or
+        # speed-limit options, so refuse explicit ones rather than
+        # acknowledging controls that would silently not apply.
+        from .extractor import is_extractor_url
+        from .hls import is_hls_url
+        if is_hls_url(url) or is_extractor_url(url):
+            raise _problem(
+                400,
+                "unsupported_for_backend",
+                "connections and speed_limit_kbps only apply to direct downloads, "
+                "not video or stream URLs.",
+            )
     return {
-        "url": validate_url(payload.get("url")),
+        "url": url,
         "directory": validate_directory(payload.get("directory"), create),
         "filename": validate_filename(payload.get("filename")),
         "connections": validate_connections(payload.get("connections")),

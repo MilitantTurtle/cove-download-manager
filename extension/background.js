@@ -420,6 +420,8 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } else {
         sendResponse({ ok: false, error: (result && result.message) || "Cove is unavailable" });
       }
+    }).catch((e) => {
+      sendResponse({ ok: false, error: (e && e.message) || "Cove is unavailable" });
     });
     return true;
   }
