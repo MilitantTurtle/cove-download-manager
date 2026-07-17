@@ -48,7 +48,9 @@ saveBtn.addEventListener("click", async () => {
   const newSettings = {
     enabled: enabledCheckbox.checked,
     mediaPillEnabled: mediaPillEnabledCheckbox.checked,
-    minSizeBytes: parseInt(minSizeInput.value) * parseInt(minSizeUnit.value),
+    // A cleared input parses to NaN, which would silently disable the size
+    // filter (NaN comparisons are always false); treat it as 0.
+    minSizeBytes: (parseInt(minSizeInput.value, 10) || 0) * parseInt(minSizeUnit.value, 10),
     interceptExtensions: extensionsTextarea.value
       .split(",")
       .map((s) => s.trim().toLowerCase())

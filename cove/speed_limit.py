@@ -32,7 +32,9 @@ def configure_speed_spin(spin: QDoubleSpinBox, unit: str, kbps: int) -> None:
             spin.setSingleStep(0.25)
         else:
             spin.setDecimals(0)
-            spin.setRange(0, 1_000_000)
+            # Must cover the MB/s max (1000 MB/s = 1000 * KB_PER_MB KB/s) or
+            # switching units silently clamps a high limit.
+            spin.setRange(0, 1000 * KB_PER_MB)
             spin.setSingleStep(1)
         spin.setSpecialValueText("Unlimited")
         spin.setValue(speed_value_from_kbps(kbps, unit))

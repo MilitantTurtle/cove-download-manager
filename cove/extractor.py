@@ -9,8 +9,8 @@ from urllib.parse import parse_qs, urlparse
 
 
 _YOUTUBE_PATH = re.compile(r"^/(?:shorts|live|embed)/[^/]+")
-_PROGRESS = re.compile(r"\[download\]\s+([\d.]+)%")
-_SPEED = re.compile(r"\bat\s+([\d.]+)\s*([KMG]iB)/s", re.IGNORECASE)
+_PROGRESS = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%")
+_SPEED = re.compile(r"\bat\s+(\d+(?:\.\d+)?)\s*([KMG]iB)/s", re.IGNORECASE)
 
 
 def is_extractor_url(url: str) -> bool:

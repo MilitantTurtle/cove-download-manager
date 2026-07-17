@@ -228,7 +228,7 @@ async function interceptDownload(downloadItem) {
 
   console.log("Cove: native host response", JSON.stringify(result));
 
-  if (result.status === "ok") {
+  if (result && result.status === "ok") {
     // Confirmed: native host accepted this download. Now cancel the browser copy.
     interceptedIds.add(dlId);
     await saveInterceptedIds();
@@ -305,7 +305,7 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
     userAgent: navigator.userAgent,
   });
 
-  if (result.status === "ok") {
+  if (result && result.status === "ok") {
     showNotification("Download sent to Cove", filename || url);
   } else {
     console.error("Cove: context menu send failed, falling back to browser", result.message);
@@ -514,7 +514,7 @@ async function handleMediaTabDownload(msg, sender) {
     userAgent: navigator.userAgent,
   });
 
-  if (result.status === "ok") {
+  if (result && result.status === "ok") {
     showNotification("Download sent to Cove", filename || url);
     return { ok: true };
   }

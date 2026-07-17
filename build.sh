@@ -27,7 +27,7 @@ cp -f cove_icon.png build/recipe/cove.png
 cp -f cove_icon.png cove/cove_icon.png
 
 # Clear stale build artifacts.
-rm -rf "Cove Download Manager-x86_64" Cove.AppDir Cove-x86_64.AppImage cove.egg-info build/__pycache__ AppDir
+rm -rf "Cove Download Manager-${ARCH}" Cove.AppDir "Cove-${ARCH}.AppImage" cove.egg-info build/__pycache__ AppDir
 
 PYAPPIMG="${PYAPPIMG:-$HOME/.local/bin/python-appimage}"
 "$PYAPPIMG" build app --no-packaging -p 3.13 build/recipe

@@ -162,13 +162,16 @@ class Aria2Daemon:
         deadline = time.time() + 5.0
         client = Aria2RPC(self.settings)
         last_err: Exception | None = None
-        while time.time() < deadline:
-            try:
-                client.get_version()
-                return
-            except Exception as e:
-                last_err = e
-                time.sleep(0.1)
+        try:
+            while time.time() < deadline:
+                try:
+                    client.get_version()
+                    return
+                except Exception as e:
+                    last_err = e
+                    time.sleep(0.1)
+        finally:
+            client.close()
         self.stop()
         raise Aria2Error(f"aria2 RPC did not come up: {last_err}")
 

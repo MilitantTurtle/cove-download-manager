@@ -741,7 +741,7 @@ def main(argv: list[str] | None = None) -> int:
                     exit_code=2,
                 ) from exc
         if timeout <= 0 or timeout > 120:
-            raise CoveApiError("invalid_timeout", "Timeout must be between 0 and 120 seconds.", exit_code=5)
+            raise CoveApiError("invalid_timeout", "Timeout must be greater than 0 and at most 120 seconds.", exit_code=5)
         client = CoveHttpClient(settings, timeout)
         cove_started = ensure_cove_running(client, config)
 

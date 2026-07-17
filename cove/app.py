@@ -81,15 +81,16 @@ def run() -> int:
 
     settings = Settings.load()
 
-    try:
-        install_native_hosts()
-    except Exception:
-        # Non-fatal (the app still runs without the extension), but don't
-        # swallow it silently — this is the usual "extension can't connect"
-        # root cause.
-        logging.getLogger("cove").warning(
-            "native messaging host registration failed", exc_info=True
-        )
+    def _register_native_hosts() -> None:
+        try:
+            install_native_hosts()
+        except Exception:
+            # Non-fatal (the app still runs without the extension), but don't
+            # swallow it silently — this is the usual "extension can't connect"
+            # root cause.
+            logging.getLogger("cove").warning(
+                "native messaging host registration failed", exc_info=True
+            )
 
     theme.set_theme(settings.theme)
     _apply_palette(app)
@@ -121,6 +122,10 @@ def run() -> int:
 
     window.show()
     app.processEvents()
+
+    # Registration shells out to flatpak (up to 10 s per browser); run it
+    # after the first paint so a slow flatpak can't hold the window back.
+    QTimer.singleShot(0, _register_native_hosts)
 
     def _boot_daemon() -> None:
         try:

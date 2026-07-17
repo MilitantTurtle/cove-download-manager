@@ -316,6 +316,10 @@ class QueueApiBridge(QObject):
         if action == "cancel":
             snapshot = task_snapshot(task)
             self.queue.remove(task_id, delete_file=False)
+            # Keep only IDs the queue still tracks (the in-flight add_uri
+            # remove case); anything else 404s on its own, so pruning here
+            # stops the set from growing for the life of the session.
+            self._removed_task_ids.intersection_update(self.queue.tasks.keys())
             self._removed_task_ids.add(task_id)
             snapshot.update({"status": "removed", "speed_bytes_per_second": 0})
             return snapshot

@@ -49,11 +49,14 @@ def decode_message(stream: io.BufferedIOBase) -> dict | None:
     if data is None:
         return None
     try:
-        return json.loads(data)
+        decoded = json.loads(data)
     except (ValueError, UnicodeDecodeError):
         # Malformed frame: stop rather than crashing the host loop. The
         # browser will respawn the host on the next message.
         return None
+    # Valid JSON that isn't an object would crash handle_message; treat it
+    # like a malformed frame.
+    return decoded if isinstance(decoded, dict) else None
 
 
 def encode_message(msg: dict) -> bytes:
@@ -114,12 +117,21 @@ def handle_message(
         drop_backend = "extractor" if is_extractor_url(url) else "hls"
         if drop_backend == "extractor" or is_hls_url(url):
             import json as _json
-            from .config import DATA_DIR
-            drop_dir = DATA_DIR / "drop"
-            drop_dir.mkdir(parents=True, exist_ok=True)
             import time as _time
-            drop_file = drop_dir / f"{drop_backend}-{int(_time.time() * 1000)}.json"
-            drop_file.write_text(_json.dumps({"url": url, "filename": filename}))
+            import uuid as _uuid
+            from .config import DATA_DIR
+            try:
+                drop_dir = DATA_DIR / "drop"
+                drop_dir.mkdir(parents=True, exist_ok=True)
+                # Random suffix: two drops in the same millisecond must not
+                # overwrite each other.
+                drop_file = drop_dir / (
+                    f"{drop_backend}-{int(_time.time() * 1000)}"
+                    f"-{_uuid.uuid4().hex[:8]}.json"
+                )
+                drop_file.write_text(_json.dumps({"url": url, "filename": filename}))
+            except OSError as e:
+                return {"status": "error", "message": f"Could not queue video download: {e}"}
             return {"status": "ok", "message": "Video download queued in Cove"}
 
         try:
@@ -198,7 +210,12 @@ def main() -> None:
         msg = decode_message(stdin)
         if msg is None:
             break
-        response = handle_message(msg, rpc, settings)
+        try:
+            response = handle_message(msg, rpc, settings)
+        except Exception:
+            # A crash here kills the host and the browser respawns it,
+            # silently dropping the message (and risking a crash loop).
+            response = {"status": "error", "message": "Internal error handling message"}
         stdout.write(encode_message(response))
         stdout.flush()
 

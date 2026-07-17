@@ -169,8 +169,9 @@ def parse_sha256_manifest(text: str, target_name: str) -> str | None:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        # Single-file format: just <hex>
-        if " " not in line and "=" not in line and len(line) in (40, 56, 64):
+        # Single-file format: just <hex>. Only a 64-char digest is SHA-256;
+        # 40/56 would be SHA-1/SHA-224 from a misnamed manifest.
+        if " " not in line and "=" not in line and len(line) == 64:
             return line.lower()
         # Multi-file: <hex>  name  (two-space classic, or single-space, or = name)
         digest, _, rest = line.partition(" ")
@@ -317,10 +318,18 @@ def swap_in_appimage(new_path: Path) -> Path:
     old = Path(current).resolve()
     target = old.parent / new_path.name
     tmp = target.with_name(target.name + ".part")
-    shutil.move(str(new_path), str(tmp))
-    mode = os.stat(tmp).st_mode
-    os.chmod(tmp, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    os.replace(tmp, target)
+    try:
+        shutil.move(str(new_path), str(tmp))
+        mode = os.stat(tmp).st_mode
+        os.chmod(tmp, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        os.replace(tmp, target)
+    except Exception:
+        # A cross-filesystem move that dies midway leaves a partial .part.
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
     if target != old:
         try:
             old.unlink()  # unlinking the running file is fine on Linux

@@ -217,17 +217,26 @@ class QueueManager(QObject):
         if not drop_dir.is_dir():
             return
         import json as _json
-        for f in sorted(drop_dir.iterdir()):
+        try:
+            entries = sorted(drop_dir.iterdir())
+        except OSError:
+            return
+        for f in entries:
             if not f.name.endswith(".json"):
                 continue
             try:
                 data = _json.loads(f.read_text())
-                f.unlink()
                 url = data.get("url", "")
                 if url:
                     self.add_url(url, filename=data.get("filename"))
-            except Exception:
                 f.unlink(missing_ok=True)
+            except Exception:
+                # Sideline the file instead of retrying it every second or
+                # deleting the URL outright; .bad files are skipped above.
+                try:
+                    f.rename(f.with_name(f.name + ".bad"))
+                except OSError:
+                    f.unlink(missing_ok=True)
 
     def _check_external(self) -> None:
         """Pick up downloads added to aria2 outside Cove's queue (e.g. the
@@ -441,6 +450,23 @@ class QueueManager(QObject):
         t = self.tasks.get(tid)
         if not t or t.status not in {"active", "queued"}:
             return
+        proc = None
+        if tid in self._hls_procs:
+            proc = self._hls_procs.pop(tid)
+            self._hls_duration.pop(tid, None)
+            self._hls_stderr.pop(tid, None)
+        elif tid in self._extractor_procs:
+            proc = self._extractor_procs.pop(tid)
+            self._extractor_output.pop(tid, None)
+        if proc is not None:
+            # ffmpeg/yt-dlp can't be suspended: pause kills the process and
+            # resume relaunches from scratch (yt-dlp continues from .part
+            # files). Popping the proc first makes on_finished treat this
+            # run as superseded instead of marking the task errored.
+            if proc.state() != QProcess.NotRunning:
+                proc.terminate()
+            self._mark_paused(tid)
+            return
         if t.status == "active" and not t.gid and t.backend == "aria2":
             # add_uri is mid-flight; remember the intent so on_done can
             # send rpc.pause() once it knows the gid. Reflect it locally
@@ -470,6 +496,12 @@ class QueueManager(QObject):
                 on_fail=lambda msg, tid=tid: self._on_unpause_failed(tid, msg),
             )
         else:
+            if t.gid:
+                # Errored aria2 download: _maybe_start_next skips tasks that
+                # already have a gid, so drop the dead one from aria2 and
+                # relaunch fresh — otherwise Retry leaves it stuck "queued".
+                self._spawn(self.rpc.remove, t.gid, on_fail=lambda *_: None)
+                t.gid = None
             t.status = "queued"
             t.error = None
             self._persist(t)
@@ -683,7 +715,7 @@ class QueueManager(QObject):
 
         def on_read():
             data = proc.readAllStandardOutput().data().decode("utf-8", errors="replace")
-            self._hls_stderr[t.id] = data
+            self._hls_stderr[t.id] = (self._hls_stderr.get(t.id, "") + data)[-12000:]
             for line in data.splitlines():
                 info = parse_ffmpeg_progress(line, self._hls_duration.get(t.id, 0.0))
                 if "duration_secs" in info:
@@ -698,9 +730,16 @@ class QueueManager(QObject):
                     self.task_changed.emit(t.id)
 
         def on_finished(exit_code, _exit_status):
+            proc.deleteLater()
+            if self._hls_procs.get(t.id) is not proc:
+                # Superseded: paused/stopped/removed terminated this run and
+                # already cleaned up; its exit must not touch the task.
+                return
             self._hls_procs.pop(t.id, None)
             self._hls_duration.pop(t.id, None)
             stderr = self._hls_stderr.pop(t.id, "")
+            if t.id not in self.tasks:
+                return
             if exit_code == 0:
                 t.status = "completed"
                 t.finished_at = time.time()
@@ -713,14 +752,39 @@ class QueueManager(QObject):
             self.task_changed.emit(t.id)
             self._maybe_start_next()
 
+        def on_error(err):
+            # FailedToStart never emits finished; without this the task
+            # would sit "active" forever.
+            if err != QProcess.FailedToStart:
+                return
+            proc.deleteLater()
+            if self._hls_procs.get(t.id) is not proc:
+                return
+            self._hls_procs.pop(t.id, None)
+            self._hls_duration.pop(t.id, None)
+            self._hls_stderr.pop(t.id, None)
+            if t.id not in self.tasks:
+                return
+            t.status = "error"
+            t.error = f"{cmd[0]} failed to start"
+            t.finished_at = time.time()
+            self._persist(t)
+            self.task_changed.emit(t.id)
+            self._maybe_start_next()
+
         proc.readyReadStandardOutput.connect(on_read)
         proc.finished.connect(on_finished)
+        proc.errorOccurred.connect(on_error)
         proc.start(cmd[0], cmd[1:])
 
     def _launch_extractor(self, t: DownloadTask) -> None:
         from .extractor import parse_ytdlp_progress, ytdlp_command
         stem = os.path.splitext(t.filename or "video.mp4")[0]
-        output_template = os.path.join(t.out_dir, f"{stem}.%(ext)s")
+        # Literal % in the directory or stem would be parsed as yt-dlp
+        # output-template fields; %% is yt-dlp's escape for a literal %.
+        escaped_dir = t.out_dir.replace("%", "%%")
+        escaped_stem = stem.replace("%", "%%")
+        output_template = os.path.join(escaped_dir, f"{escaped_stem}.%(ext)s")
         cmd = ytdlp_command(t.url, output_template)
 
         proc = QProcess(self)
@@ -740,8 +804,15 @@ class QueueManager(QObject):
                     self.task_changed.emit(t.id)
 
         def on_finished(exit_code, _exit_status):
+            proc.deleteLater()
+            if self._extractor_procs.get(t.id) is not proc:
+                # Superseded: paused/stopped/removed terminated this run and
+                # already cleaned up; its exit must not touch the task.
+                return
             self._extractor_procs.pop(t.id, None)
             output = self._extractor_output.pop(t.id, "")
+            if t.id not in self.tasks:
+                return
             if exit_code == 0:
                 t.status = "completed"
                 t.finished_at = time.time()
@@ -756,8 +827,28 @@ class QueueManager(QObject):
             self.task_changed.emit(t.id)
             self._maybe_start_next()
 
+        def on_error(err):
+            # FailedToStart never emits finished; without this the task
+            # would sit "active" forever.
+            if err != QProcess.FailedToStart:
+                return
+            proc.deleteLater()
+            if self._extractor_procs.get(t.id) is not proc:
+                return
+            self._extractor_procs.pop(t.id, None)
+            self._extractor_output.pop(t.id, None)
+            if t.id not in self.tasks:
+                return
+            t.status = "error"
+            t.error = f"{cmd[0]} failed to start"
+            t.finished_at = time.time()
+            self._persist(t)
+            self.task_changed.emit(t.id)
+            self._maybe_start_next()
+
         proc.readyReadStandardOutput.connect(on_read)
         proc.finished.connect(on_finished)
+        proc.errorOccurred.connect(on_error)
         proc.start(cmd[0], cmd[1:])
 
     def _launch(self, t: DownloadTask) -> None:
@@ -808,12 +899,24 @@ class QueueManager(QObject):
 
             tt.gid = gid
 
-            if pending.get("pause"):
-                # User paused before gid landed — local state is already
+            if pending.get("pause") or tt.status == "paused":
+                # User paused before gid landed (or stop_queue's pause_all
+                # already ran and marked it) — local state is already
                 # "paused"; tell aria2 to actually pause the download.
                 self._spawn(self.rpc.pause, gid)
                 self._persist(tt)
                 self._maybe_start_next()
+                return
+
+            if not self._running or not self._scheduler_allows:
+                # stop_queue/scheduler sent pause_all while add_uri was in
+                # flight; that couldn't see this gid, so pause it now and
+                # mark it auto-paused so start_queue resumes it.
+                tt.status = "paused"
+                self._auto_paused.add(tid)
+                self._spawn(self.rpc.pause, gid)
+                self._persist(tt)
+                self.task_changed.emit(tid)
                 return
 
             self._persist(tt)
@@ -900,6 +1003,10 @@ class QueueManager(QObject):
         t = self.tasks.get(tid)
         if not t:
             return
+        if t.gid:
+            # Clean the dead download out of aria2 before relaunching, or
+            # it lingers there and can be re-adopted as an "external" one.
+            self._spawn(self.rpc.remove, t.gid, on_fail=lambda *_: None)
         t.gid = None
         t.status = "queued"
         t.error = None

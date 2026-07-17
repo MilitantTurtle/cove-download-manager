@@ -12,8 +12,10 @@ if is_portable():
     CONFIG_DIR = _portable
     DATA_DIR = _portable
 else:
-    CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "cove"
-    DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "cove"
+    # Per the XDG spec an empty env var must be treated as unset, otherwise
+    # these resolve to a relative "cove" in the current working directory.
+    CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "cove"
+    DATA_DIR = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "cove"
 CONFIG_FILE = CONFIG_DIR / "settings.json"
 DB_FILE = DATA_DIR / "cove.db"
 ARIA2_SESSION = DATA_DIR / "aria2.session"
@@ -139,14 +141,26 @@ class Settings:
         try:
             raw = json.loads(CONFIG_FILE.read_text())
         except (OSError, json.JSONDecodeError):
+            raw = None
+        if not isinstance(raw, dict):
+            # Unreadable or corrupted (valid JSON that isn't an object):
+            # start over with defaults rather than crashing on load.
             s = cls()
             s.rpc_secret = _new_rpc_secret()
             s.api_token = _new_distinct_api_token(s.rpc_secret)
             s.save()
             return s
         speed_limit_unit_missing = "speed_limit_unit" not in raw
-        sched = ScheduleWindow(**raw.pop("schedule", {})) if "schedule" in raw else ScheduleWindow()
-        cat = CategoryDirs(**raw.pop("category_dirs", {})) if "category_dirs" in raw else CategoryDirs()
+
+        def _sub_fields(data, klass):
+            """Keyword args for a nested dataclass, dropping unknown keys
+            and tolerating a non-dict value from a hand-edited file."""
+            if not isinstance(data, dict):
+                return {}
+            return {k: v for k, v in data.items() if k in klass.__annotations__}
+
+        sched = ScheduleWindow(**_sub_fields(raw.pop("schedule", None), ScheduleWindow))
+        cat = CategoryDirs(**_sub_fields(raw.pop("category_dirs", None), CategoryDirs))
         s = cls(**{k: v for k, v in raw.items() if k in cls.__annotations__})
         s.schedule = sched
         s.category_dirs = cat
@@ -167,6 +181,9 @@ class Settings:
             changed = True
         if isinstance(s.api_port, bool) or not isinstance(s.api_port, int) or not 1 <= s.api_port <= 65535:
             s.api_port = DEFAULT_API_PORT
+            changed = True
+        if isinstance(s.rpc_port, bool) or not isinstance(s.rpc_port, int) or not 1 <= s.rpc_port <= 65535:
+            s.rpc_port = 6800
             changed = True
         if not isinstance(s.api_enabled, bool):
             s.api_enabled = True

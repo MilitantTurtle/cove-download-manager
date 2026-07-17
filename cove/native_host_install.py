@@ -97,7 +97,10 @@ def _host_command_parts() -> list[str]:
 
 
 def _wrapper_script(parts: list[str]) -> str:
-    quoted = " ".join(f'"{p}"' for p in parts)
+    import shlex
+    # shlex.quote, not bare double quotes: a path containing ", $, or `
+    # would otherwise break or expand inside the generated script.
+    quoted = " ".join(shlex.quote(p) for p in parts)
     return (
         "#!/usr/bin/env bash\n"
         f"target=({quoted})\n"
