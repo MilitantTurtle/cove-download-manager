@@ -1,0 +1,9 @@
+diff --git a/src/WinTLSContext.cc b/src/WinTLSContext.cc
+--- a/src/WinTLSContext.cc
++++ b/src/WinTLSContext.cc
+@@ -152,3 +152,4 @@ void WinTLSContext::setVerifyPeer(bool verify)
+   credentials_.dwFlags |= SCH_CRED_AUTO_CRED_VALIDATION |
+                           SCH_CRED_REVOCATION_CHECK_CHAIN |
+-                          SCH_CRED_IGNORE_NO_REVOCATION_CHECK;
++                          SCH_CRED_IGNORE_NO_REVOCATION_CHECK |
++                          SCH_CRED_IGNORE_REVOCATION_OFFLINE;
