@@ -96,3 +96,7 @@ finally {
         Remove-Item -LiteralPath $OutputDirectory -Recurse -Force
     }
 }
+
+# Expected rejection cases leave $LASTEXITCODE set to aria2's non-zero result.
+# Reaching here means every assertion passed, so return success explicitly.
+exit 0
